@@ -419,7 +419,11 @@ async function spotifyFetch(url){
   if(!token){ showGate('Your session expired — reconnect to Spotify.'); throw new Error('no token'); }
   const res = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
   if(res.status===401){ showGate('Your session expired — reconnect to Spotify.'); throw new Error('unauthorized'); }
-  if(!res.ok) throw new Error('Spotify request failed ('+res.status+')');
+  if(!res.ok){
+    let reason = '';
+    try{ const body = await res.json(); reason = body && body.error && body.error.message ? body.error.message : ''; }catch(e){ /* body wasn't JSON */ }
+    throw new Error('Spotify request failed ('+res.status+')' + (reason ? ': '+reason : ''));
+  }
   return await res.json();
 }
 
@@ -964,13 +968,13 @@ async function renderArtistDetail(artistId, artistName){
   }catch(err){
     console.error(err);
     if(err.message!=='no token' && err.message!=='unauthorized'){
-      document.getElementById('discoLoading').textContent = 'Could not load discography.';
+      document.getElementById('discoLoading').textContent = 'Could not load discography: ' + err.message;
     }
   }
 }
 
 async function fetchArtistDiscography(artistId){
-  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=album,single&limit=50&market=US';
+  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=album,single&limit=50&market=from_token';
   let items = [];
   let pages = 0;
   while(url && pages < 6){
@@ -1163,7 +1167,7 @@ async function findArtistId(name){
 }
 
 async function fetchArtistSinglesChronological(artistId){
-  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=single&limit=50&market=US';
+  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=single&limit=50&market=from_token';
   let items = [], pages = 0;
   while(url && pages < 6){ const data = await spotifyFetch(url); items = items.concat(data.items); url = data.next; pages++; }
   const seen = new Set(), deduped = [];
