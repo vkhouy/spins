@@ -394,12 +394,20 @@ function saveTokens(data){
   localStorage.setItem('d1a:expires_at', String(expiresAt));
   if(data.refresh_token) localStorage.setItem('d1a:refresh_token', data.refresh_token);
 }
+let refreshInFlight = null;
 async function getValidToken(){
   const token = localStorage.getItem('d1a:access_token');
   const expiresAt = parseInt(localStorage.getItem('d1a:expires_at')||'0',10);
   const refresh = localStorage.getItem('d1a:refresh_token');
   if(token && Date.now() < expiresAt) return token;
-  if(refresh){ const data = await refreshToken(refresh); saveTokens(data); return data.access_token; }
+  if(refresh){
+    if(!refreshInFlight){
+      refreshInFlight = refreshToken(refresh)
+        .then(data => { saveTokens(data); return data.access_token; })
+        .finally(() => { refreshInFlight = null; });
+    }
+    return await refreshInFlight;
+  }
   return null;
 }
 function disconnect(){
@@ -530,7 +538,7 @@ function render(){
 /* ============ ALBUMS VIEW ============ */
 function renderAlbums(){
   const store = getLibrary();
-  let albums = Object.values(store);
+  let albums = Object.values(store).filter(a => a.albumType === 'album');
 
   albums.sort((a,b) => {
     if(albumsSort === 'date-newest') return new Date(b.listenedDate) - new Date(a.listenedDate);
@@ -1078,7 +1086,6 @@ function renderStats(){
 
   const topAlbums = [...ratedAlbums].sort((a,b)=>b.avg-a.avg).slice(0,10);
   const bottomAlbums = [...ratedAlbums].sort((a,b)=>a.avg-b.avg).slice(0,10);
-  const topTracks = [...allTracks].sort((a,b)=>b.track.rating-a.track.rating).slice(0,15);
 
   app.innerHTML = `
     <div class="page-head"><h1>Stats</h1></div>
@@ -1097,10 +1104,6 @@ function renderStats(){
         <h2>Bottom 10 albums</h2>
         ${bottomAlbums.length ? bottomAlbums.map((x,i)=>statListRow(i+1,x.album.title,artistNames(x.album.artists),x.avg)).join('') : '<div class="empty-state">No rated albums yet.</div>'}
       </div>
-    </div>
-    <div style="margin-top:36px;">
-      <h2>Top 15 tracks</h2>
-      ${topTracks.length ? topTracks.map((x,i)=>statListRow(i+1,x.track.name,artistNames(x.album.artists),x.track.rating)).join('') : '<div class="empty-state">No rated tracks yet.</div>'}
     </div>
   `;
 }
