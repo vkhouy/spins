@@ -974,10 +974,10 @@ async function renderArtistDetail(artistId, artistName){
 }
 
 async function fetchArtistDiscography(artistId){
-  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=album,single&limit=50&market=from_token';
+  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=album,single&limit=10&market=from_token';
   let items = [];
   let pages = 0;
-  while(url && pages < 6){
+  while(url && pages < 30){
     const data = await spotifyFetch(url);
     items = items.concat(data.items);
     url = data.next;
@@ -1167,9 +1167,9 @@ async function findArtistId(name){
 }
 
 async function fetchArtistSinglesChronological(artistId){
-  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=single&limit=50&market=from_token';
+  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=single&limit=10&market=from_token';
   let items = [], pages = 0;
-  while(url && pages < 6){ const data = await spotifyFetch(url); items = items.concat(data.items); url = data.next; pages++; }
+  while(url && pages < 30){ const data = await spotifyFetch(url); items = items.concat(data.items); url = data.next; pages++; }
   const seen = new Set(), deduped = [];
   items.forEach(it => { const key = it.name.toLowerCase(); if(seen.has(key)) return; seen.add(key); deduped.push(it); });
   const trueSingles = deduped.filter(it => classifyType(it) === 'single');
