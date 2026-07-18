@@ -220,8 +220,8 @@ input[type=text]:focus{border-color:var(--green);}
 }
 .skip-label input{width:15px;height:15px;accent-color:var(--green);cursor:pointer;}
 .t-rating{
-  width:52px;height:34px;background:#0e0e10;border:1px solid var(--border);
-  border-radius:6px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;
+  width:74px;height:44px;background:#0e0e10;border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-family:'Inter',sans-serif;font-size:17px;font-weight:600;
   text-align:center;flex-shrink:0;
 }
 .t-rating:disabled{opacity:0.35;}
@@ -843,10 +843,20 @@ function renderAlbumDetail(albumId){
   });
 
   const panel = document.getElementById('tracklistPanel');
+  let bestIdx = -1, worstIdx = -1, bestVal = -Infinity, worstVal = Infinity;
+  album.tracks.forEach((t, i) => {
+    if(t.skip || t.rating===null || t.rating===undefined) return;
+    if(t.rating > bestVal){ bestVal = t.rating; bestIdx = i; }
+    if(t.rating < worstVal){ worstVal = t.rating; worstIdx = i; }
+  });
+  const ratedCount = album.tracks.filter(t => !t.skip && t.rating!==null && t.rating!==undefined).length;
+  if(ratedCount < 2) worstIdx = -1;
+  if(ratedCount < 1) bestIdx = -1;
+
   panel.innerHTML = album.tracks.map((t, idx) => `
     <div class="track-row ${t.skip?'skipped':''}">
       <div class="t-num">${idx+1}</div>
-      <div class="t-name">${escapeHtml(t.name)}</div>
+      <div class="t-name">${escapeHtml(t.name)} ${idx===bestIdx?'<span title="Highest rated">🏆</span>':''}${idx===worstIdx?'<span title="Lowest rated">👎</span>':''}</div>
       <div class="t-dur">${msToTime(t.duration_ms)}</div>
       <label class="skip-label"><input type="checkbox" data-skip-idx="${idx}" ${t.skip?'checked':''}> skip</label>
       <input type="number" class="t-rating" min="0" max="10" step="0.1" data-rate-idx="${idx}"
@@ -947,105 +957,58 @@ function renderArtists(){
 }
 
 /* ============ ARTIST DETAIL VIEW ============ */
-async function renderArtistDetail(artistId, artistName){
+function renderArtistDetail(artistId, artistName){
   app.innerHTML = `
     <div class="back-link" id="backToArtists">&larr; Back to Artists</div>
-    <div class="artist-head"><h1>${escapeHtml(artistName)}</h1><div class="a-genres" id="artistGenres"></div></div>
-    <div class="loading-text" id="discoLoading">Loading discography from Spotify…</div>
+    <div class="artist-head"><h1>${escapeHtml(artistName)}</h1></div>
     <div id="discoBody"></div>
   `;
   document.getElementById('backToArtists').addEventListener('click', () => go('artists'));
-
-  try{
-    const [artistInfo, releases] = await Promise.all([
-      spotifyFetch('https://api.spotify.com/v1/artists/' + artistId),
-      fetchArtistDiscography(artistId)
-    ]);
-    document.getElementById('artistGenres').textContent = artistInfo.genres && artistInfo.genres.length
-      ? artistInfo.genres.slice(0,3).join(', ') : '';
-    document.getElementById('discoLoading').remove();
-    renderDiscoBody(artistId, artistName, releases);
-  }catch(err){
-    console.error(err);
-    if(err.message!=='no token' && err.message!=='unauthorized'){
-      document.getElementById('discoLoading').textContent = 'Could not load discography: ' + err.message;
-    }
-  }
+  renderDiscoBody(artistId, artistName);
 }
 
-async function fetchArtistDiscography(artistId){
-  let url = 'https://api.spotify.com/v1/artists/' + artistId + '/albums?include_groups=album,single&limit=10&market=from_token';
-  let items = [];
-  let pages = 0;
-  while(url && pages < 30){
-    const data = await spotifyFetch(url);
-    items = items.concat(data.items);
-    url = data.next;
-    pages++;
-  }
-  // de-dupe by name+type, keep first occurrence
-  const seen = new Set();
-  const deduped = [];
-  items.forEach(it => {
-    const key = it.name.toLowerCase() + '|' + it.album_type;
-    if(seen.has(key)) return;
-    seen.add(key);
-    deduped.push(it);
-  });
-  const albums = [], eps = [], singles = [];
-  deduped.forEach(it => {
-    const type = classifyType(it);
-    if(type==='album') albums.push(it);
-    else if(type==='ep') eps.push(it);
-    else singles.push(it);
-  });
-  const byDateDesc = (a,b) => new Date(b.release_date) - new Date(a.release_date);
-  albums.sort(byDateDesc); eps.sort(byDateDesc); singles.sort(byDateDesc);
-  return { albums, eps, singles };
-}
-
-function discoRowHtml(release){
-  const saved = getAlbum(release.id);
-  const avg = saved ? albumAvg(saved) : null;
-  const year = release.release_date ? release.release_date.slice(0,4) : '';
-  const art = release.images && release.images[0] ? release.images[0].url : '';
-  const ratingHtml = avg!==null ? avg.toFixed(2) : (saved ? 'Unfinished' : 'Not rated');
+function discoRowHtml(album){
+  const avg = albumAvg(album);
+  const ratingHtml = avg!==null ? avg.toFixed(2) : 'Unfinished';
   return `
-    <div class="disco-row" data-release-id="${release.id}">
-      <img src="${art}" alt="">
-      <div class="dr-title">${escapeHtml(release.name)}</div>
-      <div class="dr-year">${year}</div>
+    <div class="disco-row" data-release-id="${album.albumId}">
+      <img src="${album.artworkUrl}" alt="">
+      <div class="dr-title">${escapeHtml(album.title)}</div>
       <div class="dr-rating ${avg===null?'unrated':''}" style="${avg!==null?`color:${ratingColor(avg)};`:''}">${ratingHtml}</div>
     </div>
   `;
 }
 
-function renderDiscoBody(artistId, artistName, releases){
+function renderDiscoBody(artistId, artistName){
+  const store = getLibrary();
+  const mine = Object.values(store).filter(a => a.artists.some(ar => ar.id === artistId));
+  const byRatingDesc = (a,b) => {
+    const av = albumAvg(a), bv = albumAvg(b);
+    if(av===null && bv===null) return a.title.localeCompare(b.title);
+    if(av===null) return 1;
+    if(bv===null) return -1;
+    return bv - av;
+  };
+  const albums = mine.filter(a => a.albumType==='album').sort(byRatingDesc);
+  const eps = mine.filter(a => a.albumType==='ep').sort(byRatingDesc);
+  const singles = mine.filter(a => a.albumType==='single').sort(byRatingDesc);
+
   const body = document.getElementById('discoBody');
   const sections = [
-    { key:'albums', label:'Albums', list:releases.albums },
-    { key:'eps', label:'EPs', list:releases.eps },
-    { key:'singles', label:'Singles', list:releases.singles }
+    { key:'albums', label:'Albums', list:albums },
+    { key:'eps', label:'EPs', list:eps },
+    { key:'singles', label:'Singles', list:singles }
   ];
   body.innerHTML = sections.map(sec => `
     <div class="disco-section">
       <h2>${sec.label}</h2>
-      ${sec.list.length ? sec.list.map(discoRowHtml).join('') : '<div class="empty-state">Nothing found.</div>'}
+      ${sec.list.length ? sec.list.map(discoRowHtml).join('') : '<div class="empty-state">None yet.</div>'}
     </div>
-    <div id="features-anchor-${sec.key}"></div>
   `).join('') + `<div class="disco-section" id="featuresSection"><h2>Features</h2><div id="featuresList"></div></div>`;
 
   body.querySelectorAll('[data-release-id]').forEach(row => {
-    row.addEventListener('click', async () => {
-      const releaseId = row.dataset.releaseId;
-      const backTo = {view:'artistDetail', params:{artistId, artistName}};
-      const existing = getAlbum(releaseId);
-      if(existing){ go('albumDetail', { albumId: releaseId, backTo }); return; }
-      row.style.opacity = '0.5';
-      try{
-        const draft = await createDraftAlbum(releaseId);
-        go('albumDetail', { albumId: draft.albumId, backTo });
-      }catch(err){ console.error(err); row.style.opacity='1'; }
+    row.addEventListener('click', () => {
+      go('albumDetail', { albumId: row.dataset.releaseId, backTo:{view:'artistDetail', params:{artistId, artistName}} });
     });
   });
 
