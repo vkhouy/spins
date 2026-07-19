@@ -347,6 +347,26 @@ input[type=text]:focus{border-color:var(--green);}
   </div>
 </div>
 
+<div class="modal-overlay" id="featureModal">
+  <div class="modal">
+    <button class="modal-close" id="featureModalCloseBtn">&times;</button>
+    <h2>Add a feature</h2>
+    <p class="hint" id="featureModalSubtitle"></p>
+    <div class="search-row">
+      <input type="text" id="featureSearchInput" placeholder="Search for the song…" autocomplete="off">
+    </div>
+    <div id="featureSearchStatus" class="hint"></div>
+    <div id="featureSearchResults"></div>
+    <div id="featureRateRow" style="display:none;margin-top:10px;">
+      <p class="hint" id="featureSelectedTrack"></p>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="number" id="featureRatingInput" class="t-rating" min="0" max="10" step="0.1" placeholder="–">
+        <button class="pill-btn green" id="saveFeatureBtn">Save feature</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ============ CONFIG ============ */
 const CLIENT_ID = '52f199f59a7e4ef486e35a087882039e';
@@ -433,6 +453,12 @@ function saveLibrary(store){ localStorage.setItem('d1a:library', JSON.stringify(
 function getAlbum(albumId){ return getLibrary()[albumId] || null; }
 function putAlbum(album){ const store=getLibrary(); store[album.albumId]=album; saveLibrary(store); }
 function removeAlbum(albumId){ const store=getLibrary(); delete store[albumId]; saveLibrary(store); }
+
+function getFeaturesStore(){ try{ return JSON.parse(localStorage.getItem('d1a:features')||'{}'); }catch(e){ return {}; } }
+function saveFeaturesStore(store){ localStorage.setItem('d1a:features', JSON.stringify(store)); }
+function putManualFeature(entry){ const store=getFeaturesStore(); store[entry.trackId]=entry; saveFeaturesStore(store); }
+function removeManualFeature(trackId){ const store=getFeaturesStore(); delete store[trackId]; saveFeaturesStore(store); }
+function manualFeaturesForArtist(artistId){ return Object.values(getFeaturesStore()).filter(f => f.featuredArtistId === artistId); }
 
 function classifyType(spotifyAlbum){
   if(spotifyAlbum.album_type === 'album') return 'album';
@@ -714,8 +740,10 @@ const addModal = document.getElementById('addModal');
 document.getElementById('modalCloseBtn').addEventListener('click', closeAddModal);
 addModal.addEventListener('click', e => { if(e.target === addModal) closeAddModal(); });
 let addModalOrigin = 'albums';
-function openAddModal(originView){
+let addModalOriginParams = {};
+function openAddModal(originView, originParams){
   addModalOrigin = originView || 'albums';
+  addModalOriginParams = originParams || {};
   addModal.classList.add('active');
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
@@ -765,7 +793,7 @@ async function selectSearchResult(albumId){
   try{
     const draft = await createDraftAlbum(albumId);
     closeAddModal();
-    go('albumDetail', { albumId: draft.albumId, backTo:{view:addModalOrigin} });
+    go('albumDetail', { albumId: draft.albumId, backTo:{view:addModalOrigin, params:addModalOriginParams} });
   }catch(err){
     console.error(err);
     document.getElementById('searchStatus').textContent = 'Could not load album.';
@@ -896,6 +924,7 @@ function computeArtistStats(){
     return artistMap[id];
   }
 
+  const seenFeatureTrackIds = new Set();
   albums.forEach(album => {
     const avg = albumAvg(album);
     const primaryIds = new Set(album.artists.map(a=>a.id));
@@ -914,8 +943,16 @@ function computeArtistStats(){
         const entry = ensureArtist(ta.id, ta.name);
         entry.counts.feature++;
         entry.scores.push(track.rating);
+        seenFeatureTrackIds.add(track.trackId);
       });
     });
+  });
+  Object.values(getFeaturesStore()).forEach(f => {
+    if(seenFeatureTrackIds.has(f.trackId)) return; // already counted via a saved album
+    if(f.rating === null || f.rating === undefined) return;
+    const entry = ensureArtist(f.featuredArtistId, f.featuredArtistName);
+    entry.counts.feature++;
+    entry.scores.push(f.rating);
   });
 
   return Object.values(artistMap).map(e => ({
@@ -995,16 +1032,16 @@ function renderDiscoBody(artistId, artistName){
 
   const body = document.getElementById('discoBody');
   const sections = [
-    { key:'albums', label:'Albums', list:albums },
-    { key:'eps', label:'EPs', list:eps },
-    { key:'singles', label:'Singles', list:singles }
+    { key:'albums', label:'Albums', list:albums, addable:false },
+    { key:'eps', label:'EPs', list:eps, addable:false },
+    { key:'singles', label:'Singles', list:singles, addable:true }
   ];
   body.innerHTML = sections.map(sec => `
     <div class="disco-section">
-      <h2>${sec.label}</h2>
+      <h2>${sec.label} ${sec.addable ? `<button class="pill-btn green btn-small" data-add-single style="font-size:11px;">+ Add</button>` : ''}</h2>
       ${sec.list.length ? sec.list.map(discoRowHtml).join('') : '<div class="empty-state">None yet.</div>'}
     </div>
-  `).join('') + `<div class="disco-section" id="featuresSection"><h2>Features</h2><div id="featuresList"></div></div>`;
+  `).join('') + `<div class="disco-section" id="featuresSection"><h2>Features <button class="pill-btn green btn-small" id="addFeatureBtn" style="font-size:11px;">+ Add</button></h2><div id="featuresList"></div></div>`;
 
   body.querySelectorAll('[data-release-id]').forEach(row => {
     row.addEventListener('click', () => {
@@ -1012,32 +1049,138 @@ function renderDiscoBody(artistId, artistName){
     });
   });
 
+  const addSingleBtn = body.querySelector('[data-add-single]');
+  if(addSingleBtn){
+    addSingleBtn.addEventListener('click', () => openAddModal('artistDetail', {artistId, artistName}));
+  }
+  document.getElementById('addFeatureBtn').addEventListener('click', () => openFeatureModal(artistId, artistName));
+
   renderFeaturesList(artistId);
 }
 
 function renderFeaturesList(artistId){
   const store = getLibrary();
   const featureTracks = [];
+  const seenTrackIds = new Set();
   Object.values(store).forEach(album => {
     const primaryIds = new Set(album.artists.map(a=>a.id));
     if(primaryIds.has(artistId)) return; // skip albums where they're primary
     album.tracks.forEach(t => {
       if(t.artists.some(a=>a.id===artistId)){
-        featureTracks.push({ track:t, album });
+        featureTracks.push({ trackId:t.trackId, name:t.name, albumTitle:album.title, albumArtists:artistNames(album.artists), rating:t.rating, manual:false });
+        seenTrackIds.add(t.trackId);
       }
     });
   });
+  manualFeaturesForArtist(artistId).forEach(f => {
+    if(seenTrackIds.has(f.trackId)) return; // already counted via a saved album
+    featureTracks.push({ trackId:f.trackId, name:f.name, albumTitle:f.hostAlbumTitle, albumArtists:f.hostArtists, rating:f.rating, manual:true });
+  });
+
   const el = document.getElementById('featuresList');
-  if(featureTracks.length===0){ el.innerHTML = '<div class="empty-state">No guest features found in your library.</div>'; return; }
-  featureTracks.sort((a,b) => (b.track.rating ?? -1) - (a.track.rating ?? -1));
+  if(featureTracks.length===0){ el.innerHTML = '<div class="empty-state">No guest features yet.</div>'; return; }
+  featureTracks.sort((a,b) => (b.rating ?? -1) - (a.rating ?? -1));
   el.innerHTML = featureTracks.map(ft => `
     <div class="feature-row">
-      <div class="fr-track">${escapeHtml(ft.track.name)}</div>
-      <div class="fr-album">${escapeHtml(ft.album.title)} — ${escapeHtml(artistNames(ft.album.artists))}</div>
-      <div class="fr-rating" style="color:${ratingColor(ft.track.rating)};">${(ft.track.rating !== null && ft.track.rating !== undefined) ? ft.track.rating.toFixed(1) : '–'}</div>
+      <div class="fr-track">${escapeHtml(ft.name)}</div>
+      <div class="fr-album">${escapeHtml(ft.albumTitle)} — ${escapeHtml(ft.albumArtists)}</div>
+      <div class="fr-rating" style="color:${ratingColor(ft.rating)};">${(ft.rating !== null && ft.rating !== undefined) ? ft.rating.toFixed(1) : '–'}</div>
+      ${ft.manual ? `<button class="ldelete" style="display:flex;position:static;" data-remove-feature="${ft.trackId}" title="Remove">✕</button>` : ''}
     </div>
   `).join('');
+  el.querySelectorAll('[data-remove-feature]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      removeManualFeature(btn.dataset.removeFeature);
+      renderFeaturesList(artistId);
+    });
+  });
 }
+
+/* ============ FEATURE ADD MODAL ============ */
+const featureModal = document.getElementById('featureModal');
+document.getElementById('featureModalCloseBtn').addEventListener('click', () => featureModal.classList.remove('active'));
+featureModal.addEventListener('click', e => { if(e.target === featureModal) featureModal.classList.remove('active'); });
+
+let featureModalArtistId = null, featureModalArtistName = null, featureModalSelectedTrack = null;
+
+function openFeatureModal(artistId, artistName){
+  featureModalArtistId = artistId;
+  featureModalArtistName = artistName;
+  featureModalSelectedTrack = null;
+  document.getElementById('featureModalSubtitle').textContent = `Search for a song ${artistName} appears on as a guest.`;
+  document.getElementById('featureSearchInput').value = '';
+  document.getElementById('featureSearchResults').innerHTML = '';
+  document.getElementById('featureSearchStatus').textContent = '';
+  document.getElementById('featureRateRow').style.display = 'none';
+  document.getElementById('featureRatingInput').value = '';
+  featureModal.classList.add('active');
+  document.getElementById('featureSearchInput').focus();
+}
+
+let featureSearchDebounce;
+document.getElementById('featureSearchInput').addEventListener('input', () => {
+  clearTimeout(featureSearchDebounce);
+  featureSearchDebounce = setTimeout(runFeatureSearch, 400);
+});
+document.getElementById('featureSearchInput').addEventListener('keydown', e => { if(e.key==='Enter') runFeatureSearch(); });
+
+async function runFeatureSearch(){
+  const term = document.getElementById('featureSearchInput').value.trim();
+  const statusEl = document.getElementById('featureSearchStatus');
+  const resultsEl = document.getElementById('featureSearchResults');
+  if(!term){ resultsEl.innerHTML=''; statusEl.textContent=''; return; }
+  statusEl.textContent = 'Searching…';
+  try{
+    const data = await spotifyFetch('https://api.spotify.com/v1/search?type=track&limit=10&q=' + encodeURIComponent(term));
+    const tracks = data.tracks ? data.tracks.items : [];
+    if(tracks.length===0){ statusEl.textContent='No results.'; resultsEl.innerHTML=''; return; }
+    statusEl.textContent = '';
+    resultsEl.innerHTML = tracks.map(t => `
+      <div class="search-result-row" data-track-id="${t.id}">
+        <img src="${t.album && t.album.images && t.album.images[0] ? t.album.images[0].url : ''}" alt="">
+        <div>
+          <div class="sr-title">${escapeHtml(t.name)}</div>
+          <div class="sr-artist">${escapeHtml(t.artists.map(a=>a.name).join(', '))} — ${escapeHtml(t.album ? t.album.name : '')}</div>
+        </div>
+      </div>
+    `).join('');
+    resultsEl.querySelectorAll('[data-track-id]').forEach(row => {
+      const t = tracks.find(x => x.id === row.dataset.trackId);
+      row.addEventListener('click', () => selectFeatureTrack(t));
+    });
+  }catch(err){
+    if(err.message!=='no token' && err.message!=='unauthorized') statusEl.textContent = 'Search failed: ' + err.message;
+    console.error(err);
+  }
+}
+
+function selectFeatureTrack(track){
+  featureModalSelectedTrack = track;
+  document.getElementById('featureSelectedTrack').textContent =
+    `Selected: ${track.name} — ${track.artists.map(a=>a.name).join(', ')} (from ${track.album ? track.album.name : 'unknown album'})`;
+  document.getElementById('featureRateRow').style.display = 'block';
+  document.getElementById('featureRatingInput').focus();
+}
+
+document.getElementById('saveFeatureBtn').addEventListener('click', () => {
+  if(!featureModalSelectedTrack) return;
+  let rating = parseFloat(document.getElementById('featureRatingInput').value);
+  if(isNaN(rating)) rating = null;
+  else rating = Math.round(Math.max(0, Math.min(10, rating)) * 10) / 10;
+  const t = featureModalSelectedTrack;
+  putManualFeature({
+    trackId: t.id,
+    name: t.name,
+    hostAlbumTitle: t.album ? t.album.name : '',
+    hostArtists: t.artists.map(a=>a.name).join(', '),
+    featuredArtistId: featureModalArtistId,
+    featuredArtistName: featureModalArtistName,
+    rating
+  });
+  featureModal.classList.remove('active');
+  renderFeaturesList(featureModalArtistId);
+});
+
 
 /* ============ STATS VIEW ============ */
 function renderStats(){
