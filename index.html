@@ -241,6 +241,12 @@ input[type=text]:focus{border-color:var(--green);}
 }
 .notes-section textarea:focus{border-color:var(--green);}
 .notes-section textarea::placeholder{color:var(--text-dim);}
+.genre-input{
+  background:none;border:none;border-bottom:1px dashed transparent;color:var(--text-dim);
+  font-family:'Inter',sans-serif;font-size:13px;padding:0;width:140px;outline:none;
+}
+.genre-input:hover{border-bottom-color:var(--border);}
+.genre-input:focus{border-bottom-color:var(--green);color:var(--text);}
 
 /* ===== ARTISTS TABLE ===== */
 .artist-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;}
@@ -863,7 +869,7 @@ function renderAlbumDetail(albumId){
           ${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : ''}
         </div>
         <div class="d-artist">${escapeHtml(artistNames(album.artists))}</div>
-        <div class="d-sub">· ${escapeHtml(album.genre)}</div>
+        <div class="d-sub">· <input type="text" id="albumGenreInput" class="genre-input" value="${escapeHtml(album.genre)}" placeholder="Genre"></div>
         <div class="d-sub">Listened ${fmtDate(album.listenedDate)}</div>
         <div class="overall-rating">
           <label>Overall rating</label>
@@ -899,6 +905,16 @@ function renderAlbumDetail(albumId){
       a.notes = e.target.value;
       putAlbum(a);
     }, 400);
+  });
+
+  document.getElementById('albumGenreInput').addEventListener('blur', e => {
+    const a = getAlbum(albumId);
+    if(!a) return;
+    a.genre = e.target.value.trim() || 'None';
+    putAlbum(a);
+  });
+  document.getElementById('albumGenreInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') e.target.blur();
   });
 
   const panel = document.getElementById('tracklistPanel');
