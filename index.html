@@ -951,7 +951,8 @@ function computeArtistStats(){
     if(seenFeatureTrackIds.has(f.trackId)) return; // already counted via a saved album
     if(f.rating === null || f.rating === undefined) return;
     const entry = ensureArtist(f.featuredArtistId, f.featuredArtistName);
-    entry.counts.feature++;
+    if(f.role === 'single') entry.counts.single++;
+    else entry.counts.feature++;
     entry.scores.push(f.rating);
   });
 
@@ -1029,19 +1030,33 @@ function renderDiscoBody(artistId, artistName){
   const albums = mine.filter(a => a.albumType==='album').sort(byRatingDesc);
   const eps = mine.filter(a => a.albumType==='ep').sort(byRatingDesc);
   const singles = mine.filter(a => a.albumType==='single').sort(byRatingDesc);
+  const manualSingles = manualFeaturesForArtist(artistId).filter(f => f.role === 'single');
+  const singlesEmpty = singles.length === 0 && manualSingles.length === 0;
 
   const body = document.getElementById('discoBody');
   const sections = [
-    { key:'albums', label:'Albums', list:albums, addable:false },
-    { key:'eps', label:'EPs', list:eps, addable:false },
-    { key:'singles', label:'Singles', list:singles, addable:true }
+    { key:'albums', label:'Albums', list:albums },
+    { key:'eps', label:'EPs', list:eps }
   ];
   body.innerHTML = sections.map(sec => `
     <div class="disco-section">
-      <h2>${sec.label} ${sec.addable ? `<button class="pill-btn green btn-small" data-add-single style="font-size:11px;">+ Add</button>` : ''}</h2>
+      <h2>${sec.label}</h2>
       ${sec.list.length ? sec.list.map(discoRowHtml).join('') : '<div class="empty-state">None yet.</div>'}
     </div>
-  `).join('') + `<div class="disco-section" id="featuresSection"><h2>Features <button class="pill-btn green btn-small" id="addFeatureBtn" style="font-size:11px;">+ Add</button></h2><div id="featuresList"></div></div>`;
+  `).join('') + `
+    <div class="disco-section">
+      <h2>Singles</h2>
+      ${singles.length ? singles.map(discoRowHtml).join('') : ''}
+      <div id="manualSinglesList"></div>
+      ${singlesEmpty ? '<div class="empty-state">None yet.</div>' : ''}
+      <div style="margin-top:10px;"><button class="pill-btn green" id="addSingleBtn" style="font-size:12px;">+ Add single</button></div>
+    </div>
+    <div class="disco-section" id="featuresSection">
+      <h2>Features</h2>
+      <div id="featuresList"></div>
+      <div style="margin-top:10px;"><button class="pill-btn green" id="addFeatureBtn" style="font-size:12px;">+ Add feature</button></div>
+    </div>
+  `;
 
   body.querySelectorAll('[data-release-id]').forEach(row => {
     row.addEventListener('click', () => {
@@ -1049,13 +1064,32 @@ function renderDiscoBody(artistId, artistName){
     });
   });
 
-  const addSingleBtn = body.querySelector('[data-add-single]');
-  if(addSingleBtn){
-    addSingleBtn.addEventListener('click', () => openAddModal('artistDetail', {artistId, artistName}));
-  }
-  document.getElementById('addFeatureBtn').addEventListener('click', () => openFeatureModal(artistId, artistName));
+  document.getElementById('addSingleBtn').addEventListener('click', () => openFeatureModal(artistId, artistName, 'single'));
+  document.getElementById('addFeatureBtn').addEventListener('click', () => openFeatureModal(artistId, artistName, 'feature'));
 
+  renderManualSinglesList(artistId);
   renderFeaturesList(artistId);
+}
+
+function renderManualSinglesList(artistId){
+  const el = document.getElementById('manualSinglesList');
+  const entries = manualFeaturesForArtist(artistId).filter(f => f.role === 'single');
+  if(entries.length === 0){ el.innerHTML = ''; return; }
+  entries.sort((a,b) => (b.rating ?? -1) - (a.rating ?? -1));
+  el.innerHTML = entries.map(f => `
+    <div class="feature-row">
+      <div class="fr-track">${escapeHtml(f.name)}</div>
+      <div class="fr-album">${escapeHtml(f.hostArtists)}</div>
+      <div class="fr-rating" style="color:${ratingColor(f.rating)};">${(f.rating !== null && f.rating !== undefined) ? f.rating.toFixed(1) : '–'}</div>
+      <button class="ldelete" style="display:flex;position:static;" data-remove-single="${f.trackId}" title="Remove">✕</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-remove-single]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      removeManualFeature(btn.dataset.removeSingle);
+      renderManualSinglesList(artistId);
+    });
+  });
 }
 
 function renderFeaturesList(artistId){
@@ -1072,7 +1106,7 @@ function renderFeaturesList(artistId){
       }
     });
   });
-  manualFeaturesForArtist(artistId).forEach(f => {
+  manualFeaturesForArtist(artistId).filter(f => f.role === 'feature').forEach(f => {
     if(seenTrackIds.has(f.trackId)) return; // already counted via a saved album
     featureTracks.push({ trackId:f.trackId, name:f.name, albumTitle:f.hostAlbumTitle, albumArtists:f.hostArtists, rating:f.rating, manual:true });
   });
@@ -1101,13 +1135,17 @@ const featureModal = document.getElementById('featureModal');
 document.getElementById('featureModalCloseBtn').addEventListener('click', () => featureModal.classList.remove('active'));
 featureModal.addEventListener('click', e => { if(e.target === featureModal) featureModal.classList.remove('active'); });
 
-let featureModalArtistId = null, featureModalArtistName = null, featureModalSelectedTrack = null;
+let featureModalArtistId = null, featureModalArtistName = null, featureModalSelectedTrack = null, featureModalRole = 'feature';
 
-function openFeatureModal(artistId, artistName){
+function openFeatureModal(artistId, artistName, role){
   featureModalArtistId = artistId;
   featureModalArtistName = artistName;
+  featureModalRole = role || 'feature';
   featureModalSelectedTrack = null;
-  document.getElementById('featureModalSubtitle').textContent = `Search for a song ${artistName} appears on as a guest.`;
+  document.querySelector('#featureModal h2').textContent = featureModalRole === 'single' ? 'Add a single' : 'Add a feature';
+  document.getElementById('featureModalSubtitle').textContent = featureModalRole === 'single'
+    ? `Search for a solo track by ${artistName}.`
+    : `Search for a song ${artistName} appears on as a guest.`;
   document.getElementById('featureSearchInput').value = '';
   document.getElementById('featureSearchResults').innerHTML = '';
   document.getElementById('featureSearchStatus').textContent = '';
@@ -1175,10 +1213,12 @@ document.getElementById('saveFeatureBtn').addEventListener('click', () => {
     hostArtists: t.artists.map(a=>a.name).join(', '),
     featuredArtistId: featureModalArtistId,
     featuredArtistName: featureModalArtistName,
+    role: featureModalRole,
     rating
   });
   featureModal.classList.remove('active');
-  renderFeaturesList(featureModalArtistId);
+  if(featureModalRole === 'single') renderManualSinglesList(featureModalArtistId);
+  else renderFeaturesList(featureModalArtistId);
 });
 
 
