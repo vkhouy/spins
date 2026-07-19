@@ -501,6 +501,12 @@ function ratingColor(v){
   const hue = (clamped / 10) * 120; // 0=red, 60=yellow, 120=green
   return `hsl(${hue}, 75%, 55%)`;
 }
+function relativeRatingColor(v, min, max){
+  if(v === null || v === undefined || isNaN(v)) return '#9b9ba1';
+  if(max === min) return 'hsl(60, 75%, 55%)'; // no spread to compare against — neutral yellow
+  const ratio = Math.max(0, Math.min(1, (v - min) / (max - min)));
+  return `hsl(${ratio * 120}, 75%, 55%)`;
+}
 function albumAvg(album){
   const counted = album.tracks.filter(t => !t.skip && t.rating !== null && t.rating !== undefined);
   if(counted.length===0) return null;
@@ -600,6 +606,10 @@ function renderAlbums(){
     return 0;
   });
 
+  const ratedAvgs = albums.map(a => albumAvg(a)).filter(v => v !== null);
+  const minAvg = ratedAvgs.length ? Math.min(...ratedAvgs) : 0;
+  const maxAvg = ratedAvgs.length ? Math.max(...ratedAvgs) : 10;
+
   app.innerHTML = `
     <div class="page-head">
       <h1>Albums <span class="count">(${albums.length})</span></h1>
@@ -633,24 +643,25 @@ function renderAlbums(){
   }
 
   if(albumsViewMode === 'grid'){
-    body.innerHTML = `<div class="grid">${albums.map(albumCardHtml).join('')}</div>`;
+    body.innerHTML = `<div class="grid">${albums.map(a => albumCardHtml(a, minAvg, maxAvg)).join('')}</div>`;
   } else {
-    body.innerHTML = `<div class="list-view">${albums.map(albumListRowHtml).join('')}</div>`;
+    body.innerHTML = `<div class="list-view">${albums.map(a => albumListRowHtml(a, minAvg, maxAvg)).join('')}</div>`;
   }
   body.querySelectorAll('[data-open-album]').forEach(el=>{
     el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'albums'} }));
   });
 }
 
-function albumCardHtml(album){
+function albumCardHtml(album, minAvg, maxAvg){
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
+  const color = relativeRatingColor(avg, minAvg, maxAvg);
   return `
     <div class="album-card" data-open-album="${album.albumId}">
       <div class="art-wrap">
         <img src="${album.artworkUrl}" alt="">
         ${unfinished ? '<div class="badge unfinished">Unfinished</div>' : ''}
-        ${avg!==null ? `<div class="badge score" style="color:${ratingColor(avg)};border-color:${ratingColor(avg)}55;">${avg.toFixed(2)}</div>` : ''}
+        ${avg!==null ? `<div class="badge score" style="color:${color};border-color:${color}55;">${avg.toFixed(2)}</div>` : ''}
       </div>
       <div class="a-title">${escapeHtml(album.title)}</div>
       <div class="a-artist">${escapeHtml(artistNames(album.artists))}</div>
@@ -658,7 +669,7 @@ function albumCardHtml(album){
     </div>
   `;
 }
-function albumListRowHtml(album){
+function albumListRowHtml(album, minAvg, maxAvg){
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
   return `
@@ -668,7 +679,7 @@ function albumListRowHtml(album){
       <div class="lr-artist">${escapeHtml(artistNames(album.artists))}</div>
       <div class="lr-date">${fmtDate(album.listenedDate)}</div>
       <div class="lr-badge">${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : ''}</div>
-      <div class="lr-score" style="color:${ratingColor(avg)};">${avg!==null ? avg.toFixed(2) : ''}</div>
+      <div class="lr-score" style="color:${relativeRatingColor(avg, minAvg, maxAvg)};">${avg!==null ? avg.toFixed(2) : ''}</div>
     </div>
   `;
 }
