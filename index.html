@@ -232,6 +232,16 @@ input[type=text]:focus{border-color:var(--green);}
   border-radius:20px;cursor:pointer;}
 .delete-btn:hover{border-color:var(--red);}
 
+.notes-section{margin-top:24px;}
+.notes-section label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
+.notes-section textarea{
+  width:100%;min-height:110px;background:var(--card);border:1px solid var(--border);
+  color:var(--text);border-radius:10px;padding:14px 16px;font-family:'Inter',sans-serif;
+  font-size:14px;line-height:1.6;resize:vertical;outline:none;
+}
+.notes-section textarea:focus{border-color:var(--green);}
+.notes-section textarea::placeholder{color:var(--text-dim);}
+
 /* ===== ARTISTS TABLE ===== */
 .artist-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;}
 .artist-table thead th{
@@ -267,6 +277,11 @@ input[type=text]:focus{border-color:var(--green);}
 .feature-row .fr-track{flex:1;font-size:14px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .feature-row .fr-album{color:var(--text-dim);font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .feature-row .fr-rating{font-weight:700;color:var(--green);font-size:13px;width:50px;text-align:right;}
+.remove-x{
+  background:none;border:none;color:var(--text);opacity:0.6;
+  font-size:14px;cursor:pointer;padding:4px 6px;line-height:1;border-radius:6px;flex-shrink:0;
+}
+.remove-x:hover{opacity:1;background:rgba(255,255,255,0.08);color:var(--red);}
 
 /* ===== STATS ===== */
 .stats-cards{
@@ -824,6 +839,7 @@ async function createDraftAlbum(spotifyAlbumId){
     artworkUrl: art,
     genre,
     listenedDate: new Date().toISOString(),
+    notes: '',
     tracks
   };
   putAlbum(album);
@@ -859,6 +875,10 @@ function renderAlbumDetail(albumId){
       </div>
     </div>
     <div class="tracklist-panel" id="tracklistPanel"></div>
+    <div class="notes-section">
+      <label for="albumNotesInput">Notes</label>
+      <textarea id="albumNotesInput" placeholder="Thoughts on this album…">${escapeHtml(album.notes || '')}</textarea>
+    </div>
   `;
   document.getElementById('backToAlbums').addEventListener('click', () => {
     const bt = route.params.backTo || {view:'albums'};
@@ -868,6 +888,17 @@ function renderAlbumDetail(albumId){
     if(!confirm(`Remove "${album.title}" from your library?`)) return;
     removeAlbum(albumId);
     go('albums');
+  });
+
+  let notesSaveDebounce;
+  document.getElementById('albumNotesInput').addEventListener('input', e => {
+    clearTimeout(notesSaveDebounce);
+    notesSaveDebounce = setTimeout(() => {
+      const a = getAlbum(albumId);
+      if(!a) return;
+      a.notes = e.target.value;
+      putAlbum(a);
+    }, 400);
   });
 
   const panel = document.getElementById('tracklistPanel');
@@ -1081,7 +1112,7 @@ function renderManualSinglesList(artistId){
       <div class="fr-track">${escapeHtml(f.name)}</div>
       <div class="fr-album">${escapeHtml(f.hostArtists)}</div>
       <div class="fr-rating" style="color:${ratingColor(f.rating)};">${(f.rating !== null && f.rating !== undefined) ? f.rating.toFixed(1) : '–'}</div>
-      <button class="ldelete" style="display:flex;position:static;" data-remove-single="${f.trackId}" title="Remove">✕</button>
+      <button class="remove-x" data-remove-single="${f.trackId}" title="Remove">✕</button>
     </div>
   `).join('');
   el.querySelectorAll('[data-remove-single]').forEach(btn => {
@@ -1119,7 +1150,7 @@ function renderFeaturesList(artistId){
       <div class="fr-track">${escapeHtml(ft.name)}</div>
       <div class="fr-album">${escapeHtml(ft.albumTitle)} — ${escapeHtml(ft.albumArtists)}</div>
       <div class="fr-rating" style="color:${ratingColor(ft.rating)};">${(ft.rating !== null && ft.rating !== undefined) ? ft.rating.toFixed(1) : '–'}</div>
-      ${ft.manual ? `<button class="ldelete" style="display:flex;position:static;" data-remove-feature="${ft.trackId}" title="Remove">✕</button>` : ''}
+      ${ft.manual ? `<button class="remove-x" data-remove-feature="${ft.trackId}" title="Remove">✕</button>` : ''}
     </div>
   `).join('');
   el.querySelectorAll('[data-remove-feature]').forEach(btn => {
@@ -1146,6 +1177,7 @@ function openFeatureModal(artistId, artistName, role){
   document.getElementById('featureModalSubtitle').textContent = featureModalRole === 'single'
     ? `Search for a solo track by ${artistName}.`
     : `Search for a song ${artistName} appears on as a guest.`;
+  document.getElementById('saveFeatureBtn').textContent = featureModalRole === 'single' ? 'Save single' : 'Save feature';
   document.getElementById('featureSearchInput').value = '';
   document.getElementById('featureSearchResults').innerHTML = '';
   document.getElementById('featureSearchStatus').textContent = '';
