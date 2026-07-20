@@ -1323,8 +1323,7 @@ document.getElementById('saveFeatureBtn').addEventListener('click', () => {
     rating
   });
   featureModal.classList.remove('active');
-  if(featureModalRole === 'single') renderManualSinglesList(featureModalArtistId);
-  else renderFeaturesList(featureModalArtistId);
+  renderDiscoBody(featureModalArtistId, featureModalArtistName);
 });
 
 
