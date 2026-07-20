@@ -309,6 +309,13 @@ input[type=text]:focus{border-color:var(--green);}
 .stat-list-row.bottom .sl-score{color:var(--text);}
 @media (max-width:720px){.stats-cols{grid-template-columns:1fr;}}
 
+.genre-chart{display:flex;flex-direction:column;gap:10px;}
+.genre-row{display:flex;align-items:center;gap:14px;}
+.genre-label{width:140px;flex-shrink:0;font-size:13px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.genre-bar-track{flex:1;height:16px;background:var(--card);border-radius:8px;overflow:hidden;}
+.genre-bar-fill{height:100%;background:var(--green);border-radius:8px;transition:width .3s;}
+.genre-count{width:32px;flex-shrink:0;text-align:right;font-size:13px;font-weight:700;color:var(--text);}
+
 .loading-text{color:var(--text-dim);font-size:13px;padding:20px 0;}
 </style>
 </head>
@@ -1296,6 +1303,15 @@ function renderStats(){
   const topAlbums = [...ratedAlbums].sort((a,b)=>b.avg-a.avg).slice(0,10);
   const bottomAlbums = [...ratedAlbums].sort((a,b)=>a.avg-b.avg).slice(0,10);
 
+  const ratedVals = ratedAlbums.map(x => x.avg);
+  const minAvg = ratedVals.length ? Math.min(...ratedVals) : 0;
+  const maxAvg = ratedVals.length ? Math.max(...ratedVals) : 10;
+
+  const genreCounts = {};
+  albums.forEach(a => { const g = a.genre || 'None'; genreCounts[g] = (genreCounts[g]||0) + 1; });
+  const genreEntries = Object.entries(genreCounts).sort((a,b) => b[1]-a[1]);
+  const maxGenreCount = genreEntries.length ? genreEntries[0][1] : 1;
+
   app.innerHTML = `
     <div class="page-head"><h1>Stats</h1></div>
     <div class="stats-cards">
@@ -1307,21 +1323,33 @@ function renderStats(){
     <div class="stats-cols">
       <div>
         <h2>Top 10 albums</h2>
-        ${topAlbums.length ? topAlbums.map((x,i)=>statListRow(i+1,x.album.title,artistNames(x.album.artists),x.avg)).join('') : '<div class="empty-state">No rated albums yet.</div>'}
+        ${topAlbums.length ? topAlbums.map((x,i)=>statListRow(i+1,x.album.title,artistNames(x.album.artists),x.avg,minAvg,maxAvg)).join('') : '<div class="empty-state">No rated albums yet.</div>'}
       </div>
       <div>
         <h2>Bottom 10 albums</h2>
-        ${bottomAlbums.length ? bottomAlbums.map((x,i)=>statListRow(i+1,x.album.title,artistNames(x.album.artists),x.avg)).join('') : '<div class="empty-state">No rated albums yet.</div>'}
+        ${bottomAlbums.length ? bottomAlbums.map((x,i)=>statListRow(i+1,x.album.title,artistNames(x.album.artists),x.avg,minAvg,maxAvg)).join('') : '<div class="empty-state">No rated albums yet.</div>'}
+      </div>
+    </div>
+    <div style="margin-top:36px;">
+      <h2>Genres</h2>
+      <div class="genre-chart">
+        ${genreEntries.length ? genreEntries.map(([genre,count]) => `
+          <div class="genre-row">
+            <div class="genre-label">${escapeHtml(genre)}</div>
+            <div class="genre-bar-track"><div class="genre-bar-fill" style="width:${(count/maxGenreCount*100).toFixed(1)}%;"></div></div>
+            <div class="genre-count">${count}</div>
+          </div>
+        `).join('') : '<div class="empty-state">No albums yet.</div>'}
       </div>
     </div>
   `;
 }
-function statListRow(rank,title,artist,score){
+function statListRow(rank,title,artist,score,minAvg,maxAvg){
   return `
     <div class="stat-list-row">
       <div class="sl-rank">${rank}.</div>
       <div class="sl-title">${escapeHtml(title)} <span class="sl-artist">— ${escapeHtml(artist)}</span></div>
-      <div class="sl-score" style="color:${ratingColor(score)};">${score.toFixed(2)}</div>
+      <div class="sl-score" style="color:${relativeRatingColor(score,minAvg,maxAvg)};">${score.toFixed(2)}</div>
     </div>
   `;
 }
