@@ -998,13 +998,27 @@ function renderAlbumDetail(albumId){
 }
 
 /* ============ ARTISTS TABLE VIEW ============ */
+const ARTIST_SCORE_WEIGHTS = { album: 0.50, ep: 0.25, single: 0.15, feature: 0.10 };
+
+function weightedArtistScore(catScores){
+  let weightedSum = 0, totalWeight = 0;
+  for(const cat of ['album','ep','single','feature']){
+    const arr = catScores[cat];
+    if(!arr || arr.length === 0) continue;
+    const catAvg = arr.reduce((s,v)=>s+v,0) / arr.length;
+    weightedSum += catAvg * ARTIST_SCORE_WEIGHTS[cat];
+    totalWeight += ARTIST_SCORE_WEIGHTS[cat];
+  }
+  return totalWeight > 0 ? weightedSum / totalWeight : null;
+}
+
 function computeArtistStats(){
   const store = getLibrary();
   const albums = Object.values(store);
-  const artistMap = {}; // id -> { id, name, albums:[], eps:[], singles:[], features:[] scores }
+  const artistMap = {}; // id -> { id, name, counts, catScores:{album,ep,single,feature} }
 
   function ensureArtist(id, name){
-    if(!artistMap[id]) artistMap[id] = { id, name, counts:{album:0,ep:0,single:0,feature:0}, scores:[] };
+    if(!artistMap[id]) artistMap[id] = { id, name, counts:{album:0,ep:0,single:0,feature:0}, catScores:{album:[],ep:[],single:[],feature:[]} };
     return artistMap[id];
   }
 
@@ -1014,10 +1028,9 @@ function computeArtistStats(){
     const primaryIds = new Set(album.artists.map(a=>a.id));
     album.artists.forEach(artist => {
       const entry = ensureArtist(artist.id, artist.name);
-      if(album.albumType==='album') entry.counts.album++;
-      else if(album.albumType==='ep') entry.counts.ep++;
-      else entry.counts.single++;
-      if(avg!==null) entry.scores.push(avg);
+      const cat = album.albumType==='album' ? 'album' : (album.albumType==='ep' ? 'ep' : 'single');
+      entry.counts[cat]++;
+      if(avg!==null) entry.catScores[cat].push(avg);
     });
     // features: track-level artists not in album's primary artist set
     album.tracks.forEach(track => {
@@ -1026,7 +1039,7 @@ function computeArtistStats(){
         if(primaryIds.has(ta.id)) return;
         const entry = ensureArtist(ta.id, ta.name);
         entry.counts.feature++;
-        entry.scores.push(track.rating);
+        entry.catScores.feature.push(track.rating);
         seenFeatureTrackIds.add(track.trackId);
       });
     });
@@ -1035,14 +1048,14 @@ function computeArtistStats(){
     if(seenFeatureTrackIds.has(f.trackId)) return; // already counted via a saved album
     if(f.rating === null || f.rating === undefined) return;
     const entry = ensureArtist(f.featuredArtistId, f.featuredArtistName);
-    if(f.role === 'single') entry.counts.single++;
-    else entry.counts.feature++;
-    entry.scores.push(f.rating);
+    const cat = f.role === 'single' ? 'single' : 'feature';
+    entry.counts[cat]++;
+    entry.catScores[cat].push(f.rating);
   });
 
   return Object.values(artistMap).map(e => ({
     ...e,
-    score: e.scores.length ? e.scores.reduce((s,v)=>s+v,0)/e.scores.length : null
+    score: weightedArtistScore(e.catScores)
   })).filter(e => e.score !== null && (e.counts.album + e.counts.ep + e.counts.single) > 0);
 }
 
