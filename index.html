@@ -329,6 +329,7 @@ input[type=text]:focus{border-color:var(--green);}
     <button data-view="albums" class="active">Albums</button>
     <button data-view="eps">EPs</button>
     <button data-view="artists">Artists</button>
+    <button data-view="streaks">Streaks</button>
     <button data-view="stats">Stats</button>
   </nav>
   <div class="header-right" id="headerRight"></div>
@@ -551,6 +552,11 @@ function relativeRatingColor(v, min, max){
   const ratio = Math.max(0, Math.min(1, (v - min) / (max - min)));
   return `hsl(${ratio * 120}, 75%, 55%)`;
 }
+function getScoreRangeForType(type){
+  const vals = Object.values(getLibrary()).filter(a => a.albumType === type).map(a => albumAvg(a)).filter(v => v !== null);
+  if(vals.length === 0) return { min:0, max:10 };
+  return { min: Math.min(...vals), max: Math.max(...vals) };
+}
 function albumAvg(album){
   const counted = album.tracks.filter(t => !t.skip && t.rating !== null && t.rating !== undefined);
   if(counted.length===0) return null;
@@ -633,6 +639,7 @@ function render(){
   else if(route.view === 'albumDetail') renderAlbumDetail(route.params.albumId);
   else if(route.view === 'artists') renderArtists();
   else if(route.view === 'artistDetail') renderArtistDetail(route.params.artistId, route.params.artistName);
+  else if(route.view === 'streaks') renderStreaks();
   else if(route.view === 'stats') renderStats();
 }
 
@@ -741,6 +748,7 @@ function renderEPs(){
     if(epsSort === 'title'){ return a.title.localeCompare(b.title); }
     return 0;
   });
+  const epRange = getScoreRangeForType('ep');
 
   app.innerHTML = `
     <div class="page-head">
@@ -773,31 +781,32 @@ function renderEPs(){
   }
 
   if(epsViewMode === 'grid'){
-    body.innerHTML = `<div class="grid">${epsList.map(epCardHtml).join('')}</div>`;
+    body.innerHTML = `<div class="grid">${epsList.map(a => epCardHtml(a, epRange)).join('')}</div>`;
   } else {
-    body.innerHTML = `<div class="list-view">${epsList.map(epListRowHtml).join('')}</div>`;
+    body.innerHTML = `<div class="list-view">${epsList.map(a => epListRowHtml(a, epRange)).join('')}</div>`;
   }
   body.querySelectorAll('[data-open-album]').forEach(el=>{
     el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'eps'} }));
   });
 }
 
-function epCardHtml(album){
+function epCardHtml(album, range){
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
+  const color = relativeRatingColor(avg, range.min, range.max);
   return `
     <div class="album-card" data-open-album="${album.albumId}">
       <div class="art-wrap">
         <img src="${album.artworkUrl}" alt="">
         ${unfinished ? '<div class="badge unfinished">Unfinished</div>' : ''}
-        ${avg!==null ? `<div class="badge score" style="color:${ratingColor(avg)};border-color:${ratingColor(avg)}55;">${avg.toFixed(2)}</div>` : ''}
+        ${avg!==null ? `<div class="badge score" style="color:${color};border-color:${color}55;">${avg.toFixed(2)}</div>` : ''}
       </div>
       <div class="a-title">${escapeHtml(album.title)}</div>
       <div class="a-artist">${escapeHtml(artistNames(album.artists))}</div>
     </div>
   `;
 }
-function epListRowHtml(album){
+function epListRowHtml(album, range){
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
   return `
@@ -806,7 +815,7 @@ function epListRowHtml(album){
       <div class="lr-title">${escapeHtml(album.title)}</div>
       <div class="lr-artist">${escapeHtml(artistNames(album.artists))}</div>
       <div class="lr-badge">${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : ''}</div>
-      <div class="lr-score" style="color:${ratingColor(avg)};">${avg!==null ? avg.toFixed(2) : ''}</div>
+      <div class="lr-score" style="color:${relativeRatingColor(avg, range.min, range.max)};">${avg!==null ? avg.toFixed(2) : ''}</div>
     </div>
   `;
 }
@@ -913,6 +922,9 @@ function renderAlbumDetail(albumId){
   if(!album){ go('albums'); return; }
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
+  const bt = route.params.backTo;
+  const colorRange = (bt && bt.view === 'artistDetail') ? getArtistScoreRange() : getScoreRangeForType(album.albumType);
+  const dateValue = (() => { const d = new Date(album.listenedDate); return isNaN(d) ? '' : d.toISOString().slice(0,10); })();
 
   app.innerHTML = `
     <div class="back-link" id="backToAlbums">&larr; Back</div>
@@ -925,10 +937,10 @@ function renderAlbumDetail(albumId){
         </div>
         <div class="d-artist">${escapeHtml(artistNames(album.artists))}</div>
         <div class="d-sub">· <select id="albumGenreInput" class="genre-input">${genreOptionsHtml(album.genre)}</select> <button class="pill-btn btn-small" id="addGenreBtn" style="font-size:11px;padding:4px 10px;">+ Add genre</button></div>
-        <div class="d-sub">Listened ${fmtDate(album.listenedDate)}</div>
+        <div class="d-sub">Listened <input type="date" id="albumDateInput" class="genre-input" style="width:130px;" value="${dateValue}"></div>
         <div class="overall-rating">
           <label>Overall rating</label>
-          <div class="rating-box ${avg===null?'empty':''}" style="${avg!==null?`color:${ratingColor(avg)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
+          <div class="rating-box ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
         </div>
         <div class="detail-actions">
           <button class="delete-btn" id="deleteAlbumBtn">Remove from library</button>
@@ -949,6 +961,14 @@ function renderAlbumDetail(albumId){
     if(!confirm(`Remove "${album.title}" from your library?`)) return;
     removeAlbum(albumId);
     go('albums');
+  });
+  document.getElementById('albumDateInput').addEventListener('change', e => {
+    const a = getAlbum(albumId);
+    if(!a || !e.target.value) return;
+    const d = new Date(e.target.value + 'T12:00:00');
+    if(isNaN(d)) return;
+    a.listenedDate = d.toISOString();
+    putAlbum(a);
   });
 
   let notesSaveDebounce;
@@ -1378,6 +1398,60 @@ document.getElementById('saveFeatureBtn').addEventListener('click', () => {
 
 
 /* ============ STATS VIEW ============ */
+/* ============ STREAKS VIEW ============ */
+function renderStreaks(){
+  const items = Object.values(getLibrary()).filter(a => a.listenedDate && !isNaN(new Date(a.listenedDate)));
+  items.sort((a,b) => new Date(a.listenedDate) - new Date(b.listenedDate));
+
+  const groups = [];
+  let currentKey = null, currentGroup = null;
+  items.forEach(a => {
+    const key = new Date(a.listenedDate).toDateString();
+    if(key !== currentKey){
+      currentKey = key;
+      currentGroup = { key, date: a.listenedDate, items: [] };
+      groups.push(currentGroup);
+    }
+    currentGroup.items.push(a);
+  });
+
+  app.innerHTML = `
+    <div class="page-head"><h1>Streaks <span class="count">(${groups.length} day${groups.length===1?'':'s'})</span></h1></div>
+    <div class="subtitle">Every date you've logged something, oldest to newest.</div>
+    <div id="streaksBody"></div>
+  `;
+  const body = document.getElementById('streaksBody');
+  if(groups.length === 0){
+    body.innerHTML = '<div class="empty-state">Nothing logged yet.</div>';
+    return;
+  }
+  body.innerHTML = groups.map(g => `
+    <div class="disco-section">
+      <h2 style="font-size:15px;">${fmtDate(g.date)}</h2>
+      <div class="list-view">
+        ${g.items.map(a => streakRowHtml(a)).join('')}
+      </div>
+    </div>
+  `).join('');
+  body.querySelectorAll('[data-open-album]').forEach(el => {
+    el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'streaks'} }));
+  });
+}
+function streakRowHtml(album){
+  const avg = albumAvg(album);
+  const unfinished = isUnfinished(album);
+  const range = getScoreRangeForType(album.albumType);
+  return `
+    <div class="list-row" data-open-album="${album.albumId}">
+      <img src="${album.artworkUrl}" alt="">
+      <div class="lr-title">${escapeHtml(album.title)}</div>
+      <div class="lr-artist">${escapeHtml(artistNames(album.artists))}</div>
+      <div class="lr-badge">${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : `<span class="hint" style="text-transform:capitalize;">${album.albumType}</span>`}</div>
+      <div class="lr-score" style="color:${relativeRatingColor(avg, range.min, range.max)};">${avg!==null ? avg.toFixed(2) : ''}</div>
+    </div>
+  `;
+}
+
 function renderStats(){
   const albums = Object.values(getLibrary());
   const ratedAlbums = albums.map(a => ({ album:a, avg: albumAvg(a) })).filter(x => x.avg !== null);
