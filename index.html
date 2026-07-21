@@ -1404,7 +1404,7 @@ document.getElementById('saveFeatureBtn').addEventListener('click', () => {
 /* ============ STATS VIEW ============ */
 /* ============ STREAKS VIEW ============ */
 function renderStreaks(){
-  const items = Object.values(getLibrary()).filter(a => a.listenedDate && !isNaN(new Date(a.listenedDate)));
+  const items = Object.values(getLibrary()).filter(a => a.albumType === 'album' && a.listenedDate && !isNaN(new Date(a.listenedDate)));
   items.sort((a,b) => new Date(a.listenedDate) - new Date(b.listenedDate));
 
   app.innerHTML = `
@@ -1466,7 +1466,7 @@ function streakRowHtml(album){
       <img src="${album.artworkUrl}" alt="">
       <div class="lr-title">${escapeHtml(album.title)}</div>
       <div class="lr-artist">${escapeHtml(artistNames(album.artists))}</div>
-      <div class="lr-badge">${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : `<span class="hint" style="text-transform:capitalize;">${album.albumType}</span>`}</div>
+      <div class="lr-badge">${unfinished ? '<span class="badge unfinished" style="position:static;">Unfinished</span>' : ''}</div>
       <div class="lr-score" style="color:${relativeRatingColor(avg, range.min, range.max)};">${avg!==null ? avg.toFixed(2) : ''}</div>
     </div>
   `;
