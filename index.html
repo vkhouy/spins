@@ -275,6 +275,10 @@ input[type=text]:focus{border-color:var(--green);}
 .disco-row:hover{background:var(--card);}
 .disco-row img{width:44px;height:44px;border-radius:6px;object-fit:cover;background:#222;flex-shrink:0;}
 .disco-row .dr-title{flex:1;font-size:14px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.streak-miss-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 14px;color:var(--text-dim);font-size:13px;border-bottom:1px solid var(--border);
+}
 .disco-row .dr-year{color:var(--text-dim);font-size:12px;width:48px;flex-shrink:0;}
 .disco-row .dr-rating{font-weight:700;color:var(--green);font-size:13px;width:70px;text-align:right;flex-shrink:0;}
 .disco-row .dr-rating.unrated{color:var(--text-dim);font-weight:500;}
@@ -1403,36 +1407,52 @@ function renderStreaks(){
   const items = Object.values(getLibrary()).filter(a => a.listenedDate && !isNaN(new Date(a.listenedDate)));
   items.sort((a,b) => new Date(a.listenedDate) - new Date(b.listenedDate));
 
-  const groups = [];
-  let currentKey = null, currentGroup = null;
-  items.forEach(a => {
-    const key = new Date(a.listenedDate).toDateString();
-    if(key !== currentKey){
-      currentKey = key;
-      currentGroup = { key, date: a.listenedDate, items: [] };
-      groups.push(currentGroup);
-    }
-    currentGroup.items.push(a);
-  });
-
   app.innerHTML = `
-    <div class="page-head"><h1>Streaks <span class="count">(${groups.length} day${groups.length===1?'':'s'})</span></h1></div>
-    <div class="subtitle">Every date you've logged something, oldest to newest.</div>
+    <div class="page-head"><h1>Streaks</h1></div>
+    <div id="streaksSubtitle" class="subtitle"></div>
     <div id="streaksBody"></div>
   `;
   const body = document.getElementById('streaksBody');
-  if(groups.length === 0){
+  const subtitleEl = document.getElementById('streaksSubtitle');
+  if(items.length === 0){
+    subtitleEl.textContent = '';
     body.innerHTML = '<div class="empty-state">Nothing logged yet.</div>';
     return;
   }
-  body.innerHTML = groups.map(g => `
-    <div class="disco-section">
-      <h2 style="font-size:15px;">${fmtDate(g.date)}</h2>
-      <div class="list-view">
-        ${g.items.map(a => streakRowHtml(a)).join('')}
+
+  const byDateKey = {};
+  items.forEach(a => {
+    const key = new Date(a.listenedDate).toDateString();
+    if(!byDateKey[key]) byDateKey[key] = [];
+    byDateKey[key].push(a);
+  });
+
+  const startDate = new Date(items[0].listenedDate); startDate.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const days = [];
+  for(let d = new Date(startDate); d <= today; d.setDate(d.getDate()+1)){
+    days.push({ date: new Date(d), items: byDateKey[d.toDateString()] || [] });
+  }
+  const missedCount = days.filter(d => d.items.length === 0).length;
+  subtitleEl.textContent = `${fmtDate(startDate)} to today — ${missedCount} day${missedCount===1?'':'s'} with nothing logged.`;
+
+  // newest first, easier to scan for recent gaps
+  days.reverse();
+
+  body.innerHTML = days.map(day => {
+    if(day.items.length === 0){
+      return `<div class="streak-miss-row"><span>${fmtDate(day.date)}</span><span>No album logged</span></div>`;
+    }
+    return `
+      <div class="disco-section">
+        <h2 style="font-size:15px;">${fmtDate(day.date)}</h2>
+        <div class="list-view">
+          ${day.items.map(a => streakRowHtml(a)).join('')}
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
   body.querySelectorAll('[data-open-album]').forEach(el => {
     el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'streaks'} }));
   });
