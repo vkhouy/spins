@@ -1035,8 +1035,10 @@ function renderAlbumDetail(albumId){
   panel.querySelectorAll('[data-skip-idx]').forEach(cb => {
     cb.addEventListener('change', e => {
       const idx = parseInt(e.target.dataset.skipIdx,10);
-      album.tracks[idx].skip = e.target.checked;
-      putAlbum(album);
+      const a = getAlbum(albumId);
+      if(!a) return;
+      a.tracks[idx].skip = e.target.checked;
+      putAlbum(a);
       renderAlbumDetail(albumId);
     });
   });
@@ -1046,8 +1048,10 @@ function renderAlbumDetail(albumId){
       let val = parseFloat(e.target.value);
       if(isNaN(val)) val = null;
       else val = Math.round(Math.max(0, Math.min(10, val)) * 10) / 10;
-      album.tracks[idx].rating = val;
-      putAlbum(album);
+      const a = getAlbum(albumId);
+      if(!a) return;
+      a.tracks[idx].rating = val;
+      putAlbum(a);
       renderAlbumDetail(albumId);
     });
   });
