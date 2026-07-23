@@ -206,6 +206,10 @@ input[type=text]:focus{border-color:var(--green);}
 .rating-box.empty{color:var(--text-dim);font-weight:500;font-size:14px;}
 
 .tracklist-panel{background:var(--card);border-radius:12px;overflow:hidden;}
+.disc-header{
+  padding:12px 18px 6px;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:1px;color:var(--text-dim);background:rgba(255,255,255,0.02);
+}
 .track-row{
   display:flex;align-items:center;gap:14px;padding:13px 18px;
   border-bottom:1px solid var(--border);
@@ -226,7 +230,7 @@ input[type=text]:focus{border-color:var(--green);}
 }
 .t-rating:disabled{opacity:0.35;}
 .t-rating:focus{outline:none;border-color:var(--green);}
-.detail-actions{margin-top:18px;display:flex;justify-content:flex-end;}
+.detail-actions{margin-top:18px;display:flex;justify-content:flex-end;gap:10px;}
 .delete-btn{background:none;border:1px solid var(--border);color:var(--red);
   font-family:'Inter',sans-serif;font-size:12px;font-weight:600;padding:9px 16px;
   border-radius:20px;cursor:pointer;}
@@ -894,8 +898,8 @@ async function createDraftAlbum(spotifyAlbumId){
   if(existing) return existing;
   const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + spotifyAlbumId);
   const art = full.images && full.images[0] ? full.images[0].url : '';
-  const tracks = full.tracks.items.sort((a,b)=>(a.track_number||0)-(b.track_number||0)).map(t => ({
-    trackId: t.id, name: t.name, duration_ms: t.duration_ms,
+  const tracks = full.tracks.items.sort((a,b)=>((a.disc_number||1)-(b.disc_number||1)) || ((a.track_number||0)-(b.track_number||0))).map(t => ({
+    trackId: t.id, name: t.name, duration_ms: t.duration_ms, discNumber: t.disc_number || 1,
     artists: t.artists.map(a=>({id:a.id,name:a.name})),
     skip:false, rating:null
   }));
@@ -947,6 +951,7 @@ function renderAlbumDetail(albumId){
           <div class="rating-box ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
         </div>
         <div class="detail-actions">
+          <button class="pill-btn" id="fixOrderBtn" style="font-size:12px;">Fix track order</button>
           <button class="delete-btn" id="deleteAlbumBtn">Remove from library</button>
         </div>
       </div>
@@ -965,6 +970,37 @@ function renderAlbumDetail(albumId){
     if(!confirm(`Remove "${album.title}" from your library?`)) return;
     removeAlbum(albumId);
     go('albums');
+  });
+  document.getElementById('fixOrderBtn').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Fixing…';
+    try{
+      const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + albumId);
+      const correctOrder = full.tracks.items.sort((a,b) =>
+        ((a.disc_number||1)-(b.disc_number||1)) || ((a.track_number||0)-(b.track_number||0))
+      );
+      const a = getAlbum(albumId);
+      if(!a) return;
+      const oldByTrackId = {};
+      a.tracks.forEach(t => { oldByTrackId[t.trackId] = t; });
+      a.tracks = correctOrder.map(t => {
+        const old = oldByTrackId[t.id];
+        return {
+          trackId: t.id, name: t.name, duration_ms: t.duration_ms, discNumber: t.disc_number || 1,
+          artists: t.artists.map(x=>({id:x.id,name:x.name})),
+          skip: old ? old.skip : false,
+          rating: old ? old.rating : null
+        };
+      });
+      putAlbum(a);
+      renderAlbumDetail(albumId);
+    }catch(err){
+      console.error(err);
+      alert('Could not fix track order: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Fix track order';
+    }
   });
   document.getElementById('albumDateInput').addEventListener('change', e => {
     const a = getAlbum(albumId);
@@ -1021,16 +1057,31 @@ function renderAlbumDetail(albumId){
   if(ratedCount < 2) worstIdx = -1;
   if(ratedCount < 1) bestIdx = -1;
 
-  panel.innerHTML = album.tracks.map((t, idx) => `
-    <div class="track-row ${t.skip?'skipped':''}">
-      <div class="t-num">${idx+1}</div>
-      <div class="t-name">${escapeHtml(t.name)} ${idx===bestIdx?'<span title="Highest rated">🏆</span>':''}${idx===worstIdx?'<span title="Lowest rated">👎</span>':''}</div>
-      <div class="t-dur">${msToTime(t.duration_ms)}</div>
-      <label class="skip-label"><input type="checkbox" data-skip-idx="${idx}" ${t.skip?'checked':''}> skip</label>
-      <input type="number" class="t-rating" min="0" max="10" step="0.1" data-rate-idx="${idx}"
-        value="${t.rating ?? ''}" placeholder="–" ${t.skip?'disabled':''}>
-    </div>
-  `).join('');
+  const discNumbers = new Set(album.tracks.map(t => t.discNumber || 1));
+  const multiDisc = discNumbers.size > 1;
+  let lastDisc = null, discTrackNum = 0;
+  const rowsHtml = [];
+  album.tracks.forEach((t, idx) => {
+    const discNum = t.discNumber || 1;
+    if(multiDisc && discNum !== lastDisc){
+      rowsHtml.push(`<div class="disc-header">Disc ${discNum}</div>`);
+      lastDisc = discNum;
+      discTrackNum = 0;
+    }
+    discTrackNum++;
+    const displayNum = multiDisc ? discTrackNum : (idx+1);
+    rowsHtml.push(`
+      <div class="track-row ${t.skip?'skipped':''}">
+        <div class="t-num">${displayNum}</div>
+        <div class="t-name">${escapeHtml(t.name)} ${idx===bestIdx?'<span title="Highest rated">🏆</span>':''}${idx===worstIdx?'<span title="Lowest rated">👎</span>':''}</div>
+        <div class="t-dur">${msToTime(t.duration_ms)}</div>
+        <label class="skip-label"><input type="checkbox" data-skip-idx="${idx}" ${t.skip?'checked':''}> skip</label>
+        <input type="number" class="t-rating" min="0" max="10" step="0.1" data-rate-idx="${idx}"
+          value="${t.rating ?? ''}" placeholder="–" ${t.skip?'disabled':''}>
+      </div>
+    `);
+  });
+  panel.innerHTML = rowsHtml.join('');
 
   panel.querySelectorAll('[data-skip-idx]').forEach(cb => {
     cb.addEventListener('change', e => {
@@ -1664,7 +1715,7 @@ async function runImport(){
       }
       const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + match.id);
       const art = full.images && full.images[0] ? full.images[0].url : '';
-      const spotifyTracks = full.tracks.items.sort((a,b) => (a.track_number||0)-(b.track_number||0));
+      const spotifyTracks = full.tracks.items.sort((a,b) => ((a.disc_number||1)-(b.disc_number||1)) || ((a.track_number||0)-(b.track_number||0)));
 
       const csvOverallNum = parseFloat(entry.csvOverall);
       const hasCsvOverall = !isNaN(csvOverallNum);
@@ -1678,7 +1729,7 @@ async function runImport(){
           rating = csvOverallNum;
         }
         return {
-          trackId: t.id, name: t.name, duration_ms: t.duration_ms,
+          trackId: t.id, name: t.name, duration_ms: t.duration_ms, discNumber: t.disc_number || 1,
           artists: t.artists.map(a => ({id:a.id, name:a.name})),
           skip, rating
         };
@@ -1741,8 +1792,8 @@ async function runImport(){
         try{
           const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + rel.id);
           const art = full.images && full.images[0] ? full.images[0].url : '';
-          const tracks = full.tracks.items.sort((a,b)=>(a.track_number||0)-(b.track_number||0)).map(t => ({
-            trackId: t.id, name: t.name, duration_ms: t.duration_ms,
+          const tracks = full.tracks.items.sort((a,b)=>((a.disc_number||1)-(b.disc_number||1)) || ((a.track_number||0)-(b.track_number||0))).map(t => ({
+            trackId: t.id, name: t.name, duration_ms: t.duration_ms, discNumber: t.disc_number || 1,
             artists: t.artists.map(a=>({id:a.id,name:a.name})),
             skip: false, rating
           }));
