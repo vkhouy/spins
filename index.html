@@ -525,6 +525,14 @@ function fmtDate(iso){
   const d = new Date(iso);
   return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 }
+function toLocalDateInputValue(d){
+  // Builds YYYY-MM-DD from local calendar date (not UTC) — avoids the day
+  // shifting when local time (e.g. Toronto) is behind UTC.
+  const year = d.getFullYear();
+  const month = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${year}-${month}-${day}`;
+}
 function getCustomGenres(){ try{ return JSON.parse(localStorage.getItem('d1a:customGenres')||'[]'); }catch(e){ return []; } }
 function addCustomGenre(g){
   const list = getCustomGenres();
@@ -932,7 +940,7 @@ function renderAlbumDetail(albumId){
   const unfinished = isUnfinished(album);
   const bt = route.params.backTo;
   const colorRange = (bt && bt.view === 'artistDetail') ? getArtistScoreRange() : getScoreRangeForType(album.albumType);
-  const dateValue = (() => { const d = new Date(album.listenedDate); return isNaN(d) ? '' : d.toISOString().slice(0,10); })();
+  const dateValue = (() => { const d = new Date(album.listenedDate); return isNaN(d) ? '' : toLocalDateInputValue(d); })();
 
   app.innerHTML = `
     <div class="back-link" id="backToAlbums">&larr; Back</div>
