@@ -887,7 +887,7 @@ async function runSearch(){
       row.addEventListener('click', () => selectSearchResult(row.dataset.albumId));
     });
   }catch(err){
-    if(err.message!=='no token' && err.message!=='unauthorized') statusEl.textContent = 'Search failed.';
+    if(err.message!=='no token' && err.message!=='unauthorized') statusEl.textContent = 'Search failed: ' + err.message;
     console.error(err);
   }
 }
