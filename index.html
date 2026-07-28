@@ -244,7 +244,7 @@ input[type=text]:focus{border-color:var(--green);}
 .notes-section textarea{
   width:100%;min-height:110px;background:var(--card);border:1px solid var(--border);
   color:var(--text);border-radius:10px;padding:14px 16px;font-family:'Inter',sans-serif;
-  font-size:14px;line-height:1.6;resize:vertical;outline:none;
+  font-size:14px;line-height:1.6;resize:none;outline:none;overflow:hidden;
 }
 .notes-section textarea:focus{border-color:var(--green);}
 .notes-section textarea::placeholder{color:var(--text-dim);}
@@ -1023,7 +1023,14 @@ function renderAlbumDetail(albumId){
   });
 
   let notesSaveDebounce;
-  document.getElementById('albumNotesInput').addEventListener('input', e => {
+  const notesEl = document.getElementById('albumNotesInput');
+  function autoResizeNotes(){
+    notesEl.style.height = 'auto';
+    notesEl.style.height = notesEl.scrollHeight + 'px';
+  }
+  autoResizeNotes();
+  notesEl.addEventListener('input', e => {
+    autoResizeNotes();
     clearTimeout(notesSaveDebounce);
     notesSaveDebounce = setTimeout(() => {
       const a = getAlbum(albumId);
