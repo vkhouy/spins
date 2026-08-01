@@ -67,6 +67,14 @@ nav button.active{color:var(--text);background:rgba(255,255,255,0.1);}
 .pill-btn.green{background:var(--green);color:#04220f;}
 .pill-btn.green:hover{background:#22e56b;}
 .status-dot{font-size:12px;color:var(--text-dim);}
+.now-playing{
+  display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,0.06);border-radius:20px;padding:5px 12px 5px 5px;
+}
+.now-playing img{width:26px;height:26px;border-radius:5px;object-fit:cover;flex-shrink:0;}
+.now-playing .np-text{min-width:0;line-height:1.25;}
+.now-playing .np-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
+.now-playing .np-artist{font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
 .status-dot.connected{color:var(--green);}
 
 /* ===== GATE ===== */
@@ -275,6 +283,14 @@ input[type=text]:focus{border-color:var(--green);}
 .artist-head h1{font-size:40px;font-weight:800;margin:0 0 6px;}
 .artist-head .a-genres{color:var(--text-dim);font-size:13px;}
 .disco-section{margin-bottom:36px;}
+.upcoming-row-list{display:flex;flex-direction:column;gap:10px;}
+.upcoming-row{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:12px;padding:10px 14px;}
+.upcoming-row img{width:52px;height:52px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#222;}
+.upcoming-row .up-info{flex:1;min-width:0;}
+.upcoming-row .up-title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.upcoming-row .up-artist{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.upcoming-row .up-countdown{font-size:12px;color:var(--gold,var(--green));font-family:'Space Mono',monospace;margin-top:2px;}
+.upcoming-row .pill-btn:disabled{opacity:0.4;cursor:default;}
 .disco-section h2{font-size:20px;font-weight:700;margin:0 0 14px;}
 .disco-row{
   display:flex;align-items:center;gap:14px;padding:11px 14px;border-radius:10px;cursor:pointer;
@@ -357,7 +373,7 @@ input[type=text]:focus{border-color:var(--green);}
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <button class="modal-close" id="modalCloseBtn">&times;</button>
-    <h2>Add an album</h2>
+    <h2 id="addModalTitle">Add an album</h2>
     <div class="search-row">
       <input type="text" id="searchInput" placeholder="Search an album or artist…" autocomplete="off">
     </div>
@@ -413,7 +429,7 @@ input[type=text]:focus{border-color:var(--green);}
 /* ============ CONFIG ============ */
 const CLIENT_ID = '52f199f59a7e4ef486e35a087882039e';
 const REDIRECT_URI = window.location.origin + window.location.pathname;
-const SCOPES = '';
+const SCOPES = 'user-read-currently-playing user-read-playback-state';
 const GENRE_OPTIONS = [
   'None',
   'Acoustic','Afrobeats','Alternative','Alternative R&B','Alternative Rock','Art Pop',
@@ -492,6 +508,7 @@ async function spotifyFetch(url){
   if(!token){ showGate('Your session expired — reconnect to Spotify.'); throw new Error('no token'); }
   const res = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
   if(res.status===401){ showGate('Your session expired — reconnect to Spotify.'); throw new Error('unauthorized'); }
+  if(res.status===204) return null;
   if(!res.ok){
     let reason = '';
     try{ const body = await res.json(); reason = body && body.error && body.error.message ? body.error.message : ''; }catch(e){ /* body wasn't JSON */ }
@@ -506,6 +523,11 @@ function saveLibrary(store){ localStorage.setItem('d1a:library', JSON.stringify(
 function getAlbum(albumId){ return getLibrary()[albumId] || null; }
 function putAlbum(album){ const store=getLibrary(); store[album.albumId]=album; saveLibrary(store); }
 function removeAlbum(albumId){ const store=getLibrary(); delete store[albumId]; saveLibrary(store); }
+
+function getUpcomingStore(){ try{ return JSON.parse(localStorage.getItem('d1a:upcoming')||'{}'); }catch(e){ return {}; } }
+function saveUpcomingStore(store){ localStorage.setItem('d1a:upcoming', JSON.stringify(store)); }
+function putUpcoming(entry){ const store=getUpcomingStore(); store[entry.albumId]=entry; saveUpcomingStore(store); }
+function removeUpcoming(albumId){ const store=getUpcomingStore(); delete store[albumId]; saveUpcomingStore(store); }
 
 function getFeaturesStore(){ try{ return JSON.parse(localStorage.getItem('d1a:features')||'{}'); }catch(e){ return {}; } }
 function saveFeaturesStore(store){ localStorage.setItem('d1a:features', JSON.stringify(store)); }
@@ -620,12 +642,42 @@ function showGate(err){
 function showApp(){
   gate.style.display='none';
   app.style.display='block';
-  headerRight.innerHTML = '<span class="status-dot connected">● Connected</span> <button class="pill-btn" id="importDataBtn">Import CSV</button> <button class="pill-btn" id="signOutBtn">Sign out</button>';
+  headerRight.innerHTML = '<div id="nowPlayingWidget" class="now-playing" style="display:none;"></div><span class="status-dot connected">● Connected</span> <button class="pill-btn" id="signOutBtn">Sign out</button>';
   document.getElementById('signOutBtn').addEventListener('click', disconnect);
-  document.getElementById('importDataBtn').addEventListener('click', openImportModal);
   render();
+  pollNowPlaying();
+  if(nowPlayingInterval) clearInterval(nowPlayingInterval);
+  nowPlayingInterval = setInterval(pollNowPlaying, 15000);
 }
 document.getElementById('connectBtn').addEventListener('click', startLogin);
+
+/* ============ NOW PLAYING ============ */
+let nowPlayingInterval = null;
+async function pollNowPlaying(){
+  try{
+    const data = await spotifyFetch('https://api.spotify.com/v1/me/player/currently-playing');
+    renderNowPlaying(data);
+  }catch(err){
+    renderNowPlaying(null); // missing scope, no active device, etc — fail quietly, this is a nice-to-have
+  }
+}
+function renderNowPlaying(data){
+  const el = document.getElementById('nowPlayingWidget');
+  if(!el) return;
+  if(!data || !data.item){ el.style.display='none'; el.innerHTML=''; return; }
+  const item = data.item;
+  const images = item.album && item.album.images ? item.album.images : [];
+  const art = images.length ? images[images.length-1].url : '';
+  const artistsStr = item.artists.map(a=>a.name).join(', ');
+  el.style.display='flex';
+  el.innerHTML = `
+    <img src="${art}" alt="">
+    <div class="np-text">
+      <div class="np-title">${escapeHtml(item.name)}</div>
+      <div class="np-artist">${escapeHtml(artistsStr)}</div>
+    </div>
+  `;
+}
 
 async function initAuth(){
   const params = new URLSearchParams(window.location.search);
@@ -653,6 +705,7 @@ async function initAuth(){
 /* ============ RENDER DISPATCH ============ */
 function render(){
   setActiveNav();
+  if(route.view !== 'albums') clearInterval(upcomingCountdownInterval);
   if(route.view === 'albums') renderAlbums();
   else if(route.view === 'eps') renderEPs();
   else if(route.view === 'albumDetail') renderAlbumDetail(route.params.albumId);
@@ -695,9 +748,11 @@ function renderAlbums(){
           <button id="gridBtn" class="${albumsViewMode==='grid'?'active':''}">Grid</button>
           <button id="listBtn" class="${albumsViewMode==='list'?'active':''}">List</button>
         </div>
+        <button class="pill-btn" id="trackUpcomingBtn">+ Track upcoming</button>
         <button class="pill-btn green" id="addAlbumBtn">+ Add</button>
       </div>
     </div>
+    <div id="upcomingBody"></div>
     <div id="albumsBody"></div>
   `;
   document.getElementById('sortSelect').value = albumsSort;
@@ -705,6 +760,9 @@ function renderAlbums(){
   document.getElementById('gridBtn').addEventListener('click', () => { albumsViewMode='grid'; renderAlbums(); });
   document.getElementById('listBtn').addEventListener('click', () => { albumsViewMode='list'; renderAlbums(); });
   document.getElementById('addAlbumBtn').addEventListener('click', () => openAddModal('albums'));
+  document.getElementById('trackUpcomingBtn').addEventListener('click', () => openAddModal('albums', {}, 'upcoming'));
+
+  renderUpcomingSection();
 
   const body = document.getElementById('albumsBody');
   if(albums.length === 0){
@@ -719,6 +777,84 @@ function renderAlbums(){
   }
   body.querySelectorAll('[data-open-album]').forEach(el=>{
     el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'albums'} }));
+  });
+}
+
+let upcomingCountdownInterval = null;
+function renderUpcomingSection(){
+  clearInterval(upcomingCountdownInterval);
+  const el = document.getElementById('upcomingBody');
+  if(!el) return;
+  const entries = Object.values(getUpcomingStore()).sort((a,b) => new Date(a.releaseDate) - new Date(b.releaseDate));
+  if(entries.length === 0){ el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="disco-section">
+      <h2 style="font-size:15px;">Upcoming releases</h2>
+      <div class="upcoming-row-list">
+        ${entries.map(e => upcomingRowHtml(e)).join('')}
+      </div>
+    </div>
+  `;
+  wireUpcomingRows();
+  updateUpcomingCountdowns();
+  upcomingCountdownInterval = setInterval(updateUpcomingCountdowns, 1000);
+}
+function upcomingRowHtml(entry){
+  const released = new Date(entry.releaseDate) <= new Date();
+  return `
+    <div class="upcoming-row" data-upcoming-id="${entry.albumId}">
+      <img src="${entry.artworkUrl}" alt="">
+      <div class="up-info">
+        <div class="up-title">${escapeHtml(entry.title)}</div>
+        <div class="up-artist">${escapeHtml(entry.artist)}</div>
+        <div class="up-countdown" data-release="${entry.releaseDate}">${released ? 'Released!' : ''}</div>
+      </div>
+      <button class="pill-btn green" data-move-upcoming="${entry.albumId}" ${released ? '' : 'disabled'}>${released ? 'Add to library' : 'Not out yet'}</button>
+      <button class="remove-x" data-remove-upcoming="${entry.albumId}" title="Stop tracking">✕</button>
+    </div>
+  `;
+}
+function updateUpcomingCountdowns(){
+  document.querySelectorAll('.up-countdown').forEach(el => {
+    const release = new Date(el.dataset.release);
+    const diff = release - new Date();
+    if(diff <= 0){
+      el.textContent = 'Released!';
+      const btn = el.closest('.upcoming-row').querySelector('[data-move-upcoming]');
+      if(btn){ btn.disabled = false; btn.textContent = 'Add to library'; }
+      return;
+    }
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
+    el.textContent = `${days}d ${hours}h ${mins}m ${secs}s`;
+  });
+}
+function wireUpcomingRows(){
+  document.querySelectorAll('[data-remove-upcoming]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      removeUpcoming(btn.dataset.removeUpcoming);
+      renderUpcomingSection();
+    });
+  });
+  document.querySelectorAll('[data-move-upcoming]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if(btn.disabled) return;
+      const albumId = btn.dataset.moveUpcoming;
+      btn.disabled = true;
+      btn.textContent = 'Adding…';
+      try{
+        const draft = await createDraftAlbum(albumId);
+        removeUpcoming(albumId);
+        go('albumDetail', { albumId: draft.albumId, backTo:{view:'albums'} });
+      }catch(err){
+        console.error(err);
+        btn.disabled = false;
+        btn.textContent = 'Add to library';
+        alert('Could not add album yet: ' + err.message);
+      }
+    });
   });
 }
 
@@ -845,9 +981,12 @@ document.getElementById('modalCloseBtn').addEventListener('click', closeAddModal
 addModal.addEventListener('click', e => { if(e.target === addModal) closeAddModal(); });
 let addModalOrigin = 'albums';
 let addModalOriginParams = {};
-function openAddModal(originView, originParams){
+let addModalMode = 'library';
+function openAddModal(originView, originParams, mode){
   addModalOrigin = originView || 'albums';
   addModalOriginParams = originParams || {};
+  addModalMode = mode || 'library';
+  document.getElementById('addModalTitle').textContent = addModalMode === 'upcoming' ? 'Track an upcoming release' : 'Add an album';
   addModal.classList.add('active');
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
@@ -863,6 +1002,7 @@ document.getElementById('searchInput').addEventListener('input', () => {
   searchDebounce = setTimeout(runSearch, 400);
 });
 
+let lastSearchResults = [];
 async function runSearch(){
   const term = document.getElementById('searchInput').value.trim();
   const statusEl = document.getElementById('searchStatus');
@@ -872,6 +1012,7 @@ async function runSearch(){
   try{
     const data = await spotifyFetch('https://api.spotify.com/v1/search?type=album&limit=10&q=' + encodeURIComponent(term));
     const albums = data.albums ? data.albums.items : [];
+    lastSearchResults = albums;
     if(albums.length===0){ statusEl.textContent='No results.'; resultsEl.innerHTML=''; return; }
     statusEl.textContent = '';
     resultsEl.innerHTML = albums.map(a => `
@@ -879,7 +1020,7 @@ async function runSearch(){
         <img src="${a.images && a.images[0] ? a.images[0].url : ''}" alt="">
         <div>
           <div class="sr-title">${escapeHtml(a.name)}</div>
-          <div class="sr-artist">${escapeHtml(a.artists.map(x=>x.name).join(', '))}</div>
+          <div class="sr-artist">${escapeHtml(a.artists.map(x=>x.name).join(', '))}${a.release_date && new Date(a.release_date) > new Date() ? ' · releases ' + fmtDate(a.release_date) : ''}</div>
         </div>
       </div>
     `).join('');
@@ -893,6 +1034,20 @@ async function runSearch(){
 }
 
 async function selectSearchResult(albumId){
+  if(addModalMode === 'upcoming'){
+    const result = lastSearchResults.find(a => a.id === albumId);
+    if(!result) return;
+    putUpcoming({
+      albumId: result.id,
+      title: result.name,
+      artist: result.artists.map(a=>a.name).join(', '),
+      artworkUrl: result.images && result.images[0] ? result.images[0].url : '',
+      releaseDate: result.release_date
+    });
+    closeAddModal();
+    if(route.view === 'albums') renderAlbums();
+    return;
+  }
   document.getElementById('searchStatus').textContent = 'Loading…';
   try{
     const draft = await createDraftAlbum(albumId);
