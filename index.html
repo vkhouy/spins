@@ -1312,7 +1312,9 @@ function renderAlbumDetail(albumId){
       if(!a) return;
       a.tracks[idx].skip = e.target.checked;
       putAlbum(a);
+      const scrollY = window.scrollY;
       renderAlbumDetail(albumId);
+      window.scrollTo(0, scrollY);
     });
   });
   panel.querySelectorAll('[data-rate-idx]').forEach(input => {
@@ -1325,7 +1327,9 @@ function renderAlbumDetail(albumId){
       if(!a) return;
       a.tracks[idx].rating = val;
       putAlbum(a);
+      const scrollY = window.scrollY;
       renderAlbumDetail(albumId);
+      window.scrollTo(0, scrollY);
     });
   });
 }
