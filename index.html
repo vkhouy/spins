@@ -39,6 +39,9 @@ header{
   background:#000;
   flex-wrap:wrap;
   gap:14px;
+  position:sticky;
+  top:0;
+  z-index:50;
 }
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;}
 .brand .logo{
@@ -75,12 +78,6 @@ nav button.active{color:var(--text);background:rgba(255,255,255,0.1);}
 .now-playing .np-text{min-width:0;line-height:1.25;}
 .now-playing .np-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
 .now-playing .np-artist{font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
-.now-playing .np-controls{display:flex;align-items:center;gap:2px;margin-left:4px;flex-shrink:0;}
-.now-playing .np-btn{
-  background:none;border:none;color:var(--text);font-size:13px;cursor:pointer;
-  padding:5px 6px;border-radius:6px;line-height:1;
-}
-.now-playing .np-btn:hover{background:rgba(255,255,255,0.12);}
 .status-dot.connected{color:var(--green);}
 
 /* ===== GATE ===== */
@@ -443,7 +440,7 @@ input[type=text]:focus{border-color:var(--green);}
 /* ============ CONFIG ============ */
 const CLIENT_ID = '52f199f59a7e4ef486e35a087882039e';
 const REDIRECT_URI = window.location.origin + window.location.pathname;
-const SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
+const SCOPES = 'user-read-currently-playing user-read-playback-state';
 const GENRE_OPTIONS = [
   'None',
   'Acoustic','Afrobeats','Alternative','Alternative R&B','Alternative Rock','Art Pop',
@@ -683,7 +680,6 @@ function renderNowPlaying(data){
   const images = item.album && item.album.images ? item.album.images : [];
   const art = images.length ? images[images.length-1].url : '';
   const artistsStr = item.artists.map(a=>a.name).join(', ');
-  const isPlaying = !!data.is_playing;
   el.style.display='flex';
   el.innerHTML = `
     <img src="${art}" alt="">
@@ -691,32 +687,7 @@ function renderNowPlaying(data){
       <div class="np-title">${escapeHtml(item.name)}</div>
       <div class="np-artist">${escapeHtml(artistsStr)}</div>
     </div>
-    <div class="np-controls">
-      <button class="np-btn" id="npPrev" title="Previous">⏮</button>
-      <button class="np-btn" id="npPlayPause" title="${isPlaying?'Pause':'Play'}">${isPlaying?'⏸':'▶'}</button>
-      <button class="np-btn" id="npNext" title="Next">⏭</button>
-    </div>
   `;
-  document.getElementById('npPrev').addEventListener('click', () => spotifyPlayerControl('POST', 'previous'));
-  document.getElementById('npPlayPause').addEventListener('click', () => spotifyPlayerControl('PUT', isPlaying ? 'pause' : 'play'));
-  document.getElementById('npNext').addEventListener('click', () => spotifyPlayerControl('POST', 'next'));
-}
-
-async function spotifyPlayerControl(method, path){
-  const token = await getValidToken();
-  if(!token) return;
-  try{
-    const res = await fetch('https://api.spotify.com/v1/me/player/' + path, { method, headers:{ 'Authorization':'Bearer '+token } });
-    if(res.ok || res.status===204){
-      setTimeout(pollNowPlaying, 500);
-    } else if(res.status===403){
-      alert('Playback control needs Spotify Premium.');
-    } else if(res.status===404){
-      alert('No active Spotify device — start playing on a device first (phone, desktop app, etc.), then use these buttons.');
-    } else {
-      console.error('Playback control failed', res.status);
-    }
-  }catch(err){ console.error(err); }
 }
 
 async function initAuth(){
