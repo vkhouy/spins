@@ -1764,10 +1764,11 @@ function renderStats(){
   const uniqueArtists = new Set();
   albums.forEach(a => a.artists.forEach(ar => uniqueArtists.add(ar.id)));
 
-  const topAlbums = [...ratedAlbums].sort((a,b)=>b.avg-a.avg).slice(0,10);
-  const bottomAlbums = [...ratedAlbums].sort((a,b)=>a.avg-b.avg).slice(0,10);
+  const albumOnlyRated = albums.filter(a => a.albumType === 'album').map(a => ({ album:a, avg: albumAvg(a) })).filter(x => x.avg !== null);
+  const topAlbums = [...albumOnlyRated].sort((a,b)=>b.avg-a.avg).slice(0,10);
+  const bottomAlbums = [...albumOnlyRated].sort((a,b)=>a.avg-b.avg).slice(0,10);
 
-  const ratedVals = ratedAlbums.map(x => x.avg);
+  const ratedVals = albumOnlyRated.map(x => x.avg);
   const minAvg = ratedVals.length ? Math.min(...ratedVals) : 0;
   const maxAvg = ratedVals.length ? Math.max(...ratedVals) : 10;
 
