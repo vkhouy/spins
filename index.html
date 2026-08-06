@@ -1718,6 +1718,26 @@ function renderStreaks(){
   const missedCount = days.filter(d => d.items.length === 0).length;
   subtitleEl.textContent = `${fmtDate(startDate)} to today — ${missedCount} day${missedCount===1?'':'s'} with nothing logged.`;
 
+  // Longest streak: longest run of consecutive days with at least one album logged
+  let longestStreak = 0, running = 0;
+  days.forEach(d => {
+    if(d.items.length > 0){ running++; longestStreak = Math.max(longestStreak, running); }
+    else running = 0;
+  });
+
+  // Current streak: consecutive days ending today, with a grace day if today just hasn't happened yet
+  let currentStreak = 0;
+  let i = days.length - 1;
+  if(days[i].items.length === 0) i--; // today has nothing yet — don't count it as broken
+  while(i >= 0 && days[i].items.length > 0){ currentStreak++; i--; }
+
+  app.querySelector('.page-head').insertAdjacentHTML('afterend', `
+    <div class="stats-cards" style="margin-top:0;margin-bottom:24px;">
+      <div class="stat-card"><div class="s-label">Current streak</div><div class="s-value">${currentStreak}</div></div>
+      <div class="stat-card"><div class="s-label">Longest streak</div><div class="s-value">${longestStreak}</div></div>
+    </div>
+  `);
+
   // newest first, easier to scan for recent gaps
   days.reverse();
 
