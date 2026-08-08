@@ -622,6 +622,9 @@ function isUnfinished(album){
 let route = { view:'albums', params:{} };
 let albumsSort = 'date-newest';
 let albumsViewMode = 'grid';
+let albumsFilterStatus = 'all';
+let albumsFilterGenre = 'all';
+let albumsSearchQuery = '';
 let epsSort = 'rating-high';
 let epsViewMode = 'grid';
 
@@ -729,7 +732,21 @@ function render(){
 /* ============ ALBUMS VIEW ============ */
 function renderAlbums(){
   const store = getLibrary();
-  let albums = Object.values(store).filter(a => a.albumType === 'album');
+  const allAlbumsRaw = Object.values(store).filter(a => a.albumType === 'album');
+  let albums = allAlbumsRaw;
+
+  // available genres among current albums, for the filter dropdown
+  const genresPresent = [...new Set(albums.map(a => a.genre || 'None'))].sort();
+
+  if(albumsFilterStatus === 'finished') albums = albums.filter(a => !isUnfinished(a));
+  else if(albumsFilterStatus === 'unfinished') albums = albums.filter(a => isUnfinished(a));
+
+  if(albumsFilterGenre !== 'all') albums = albums.filter(a => (a.genre || 'None') === albumsFilterGenre);
+
+  if(albumsSearchQuery.trim()){
+    const q = albumsSearchQuery.trim().toLowerCase();
+    albums = albums.filter(a => a.title.toLowerCase().includes(q) || artistNames(a.artists).toLowerCase().includes(q));
+  }
 
   albums.sort((a,b) => {
     if(albumsSort === 'date-newest') return new Date(b.listenedDate) - new Date(a.listenedDate);
@@ -748,6 +765,16 @@ function renderAlbums(){
     <div class="page-head">
       <h1>Albums <span class="count">(${albums.length})</span></h1>
       <div class="page-controls">
+        <input type="text" id="albumsSearchInput" placeholder="Search your albums…" value="${escapeHtml(albumsSearchQuery)}" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:9px 14px;border-radius:20px;font-family:'Inter',sans-serif;font-size:13px;width:170px;outline:none;">
+        <select id="statusFilterSelect">
+          <option value="all">All</option>
+          <option value="finished">Finished</option>
+          <option value="unfinished">Unfinished</option>
+        </select>
+        <select id="genreFilterSelect">
+          <option value="all">All genres</option>
+          ${genresPresent.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('')}
+        </select>
         <select id="sortSelect">
           <option value="date-newest">Date (newest)</option>
           <option value="date-oldest">Date (oldest)</option>
@@ -768,6 +795,16 @@ function renderAlbums(){
   `;
   document.getElementById('sortSelect').value = albumsSort;
   document.getElementById('sortSelect').addEventListener('change', e => { albumsSort = e.target.value; renderAlbums(); });
+  document.getElementById('statusFilterSelect').value = albumsFilterStatus;
+  document.getElementById('statusFilterSelect').addEventListener('change', e => { albumsFilterStatus = e.target.value; renderAlbums(); });
+  document.getElementById('genreFilterSelect').value = albumsFilterGenre;
+  document.getElementById('genreFilterSelect').addEventListener('change', e => { albumsFilterGenre = e.target.value; renderAlbums(); });
+  let albumsSearchDebounce;
+  document.getElementById('albumsSearchInput').addEventListener('input', e => {
+    clearTimeout(albumsSearchDebounce);
+    const val = e.target.value;
+    albumsSearchDebounce = setTimeout(() => { albumsSearchQuery = val; renderAlbums(); }, 300);
+  });
   document.getElementById('gridBtn').addEventListener('click', () => { albumsViewMode='grid'; renderAlbums(); });
   document.getElementById('listBtn').addEventListener('click', () => { albumsViewMode='list'; renderAlbums(); });
   document.getElementById('addAlbumBtn').addEventListener('click', () => openAddModal('albums'));
@@ -777,7 +814,9 @@ function renderAlbums(){
 
   const body = document.getElementById('albumsBody');
   if(albums.length === 0){
-    body.innerHTML = '<div class="empty-state">No albums yet — click "+ Add" to search Spotify and start rating.</div>';
+    body.innerHTML = allAlbumsRaw.length === 0
+      ? '<div class="empty-state">No albums yet — click "+ Add" to search Spotify and start rating.</div>'
+      : '<div class="empty-state">No albums match these filters.</div>';
     return;
   }
 
