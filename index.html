@@ -845,7 +845,12 @@ function renderUpcomingSection(){
   clearInterval(upcomingCountdownInterval);
   const el = document.getElementById('upcomingBody');
   if(!el) return;
-  const entries = Object.values(getUpcomingStore()).sort((a,b) => new Date(a.releaseDate) - new Date(b.releaseDate));
+  const entries = Object.values(getUpcomingStore()).sort((a,b) => {
+    if(!a.releaseDate && !b.releaseDate) return 0;
+    if(!a.releaseDate) return 1;
+    if(!b.releaseDate) return -1;
+    return new Date(a.releaseDate) - new Date(b.releaseDate);
+  });
   if(entries.length === 0){ el.innerHTML = ''; return; }
   el.innerHTML = `
     <div class="disco-section">
@@ -860,14 +865,15 @@ function renderUpcomingSection(){
   upcomingCountdownInterval = setInterval(updateUpcomingCountdowns, 1000);
 }
 function upcomingRowHtml(entry){
-  const released = new Date(entry.releaseDate) <= new Date();
+  const knownDate = !!entry.releaseDate;
+  const released = knownDate && new Date(entry.releaseDate) <= new Date();
   return `
     <div class="upcoming-row" data-upcoming-id="${entry.albumId}">
       ${entry.artworkUrl ? `<img src="${entry.artworkUrl}" alt="">` : `<div class="up-art-placeholder">🎵</div>`}
       <div class="up-info">
         <div class="up-title">${escapeHtml(entry.title)}</div>
         <div class="up-artist">${escapeHtml(entry.artist)}</div>
-        <div class="up-countdown" data-release="${entry.releaseDate}">${released ? 'Released!' : ''}</div>
+        <div class="up-countdown" data-release="${entry.releaseDate || ''}">${!knownDate ? 'Release date TBD on Spotify — recheck later' : (released ? 'Released!' : '')}</div>
       </div>
       <button class="pill-btn green" data-move-upcoming="${entry.albumId}" data-manual="${entry.manual?'1':'0'}" ${released ? '' : 'disabled'}>${released ? (entry.manual ? 'Find & add' : 'Add to library') : 'Not out yet'}</button>
       <button class="remove-x" data-remove-upcoming="${entry.albumId}" title="Stop tracking">✕</button>
@@ -876,6 +882,7 @@ function upcomingRowHtml(entry){
 }
 function updateUpcomingCountdowns(){
   document.querySelectorAll('.up-countdown').forEach(el => {
+    if(!el.dataset.release){ el.textContent = 'Release date TBD on Spotify — recheck later'; return; }
     const release = new Date(el.dataset.release);
     const diff = release - new Date();
     if(diff <= 0){
@@ -1170,12 +1177,21 @@ document.getElementById('upcomingLinkBtn').addEventListener('click', async () =>
   statusEl.textContent = 'Looking it up…';
   try{
     const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + albumId);
+    let releaseDate = resolveReleaseDate(full.release_date, full.release_date_precision);
+    // Placeholder tracks ("Track 11", missing duration) mean Spotify's own catalog entry
+    // isn't finished yet — this shows up on reissues/anniversary editions especially,
+    // where release_date can still reflect the ORIGINAL release rather than this edition's.
+    // Don't trust a "released" verdict from the date field when we see this.
+    const hasPlaceholderTracks = full.tracks.items.some(t => !t.duration_ms || /^Track \d+$/i.test(t.name));
+    if(hasPlaceholderTracks && (!releaseDate || new Date(releaseDate) <= new Date())){
+      releaseDate = null; // unknown — treat as still pending regardless of the raw date
+    }
     putUpcoming({
       albumId: full.id,
       title: full.name,
       artist: full.artists.map(a=>a.name).join(', '),
       artworkUrl: full.images && full.images[0] ? full.images[0].url : '',
-      releaseDate: resolveReleaseDate(full.release_date, full.release_date_precision)
+      releaseDate
     });
     closeAddModal();
     if(route.view === 'albums') renderAlbums();
