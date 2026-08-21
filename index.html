@@ -1855,6 +1855,7 @@ function renderStreaks(){
   // newest first, easier to scan for recent gaps
   days.reverse();
 
+  const streakRange = getScoreRangeForType('album');
   body.innerHTML = days.map(day => {
     if(day.items.length === 0){
       return `<div class="streak-miss-row"><span>${fmtDate(day.date)}</span><span>No album logged</span></div>`;
@@ -1863,7 +1864,7 @@ function renderStreaks(){
       <div class="disco-section">
         <h2 style="font-size:15px;">${fmtDate(day.date)}</h2>
         <div class="list-view">
-          ${day.items.map(a => streakRowHtml(a)).join('')}
+          ${day.items.map(a => streakRowHtml(a, streakRange)).join('')}
         </div>
       </div>
     `;
@@ -1872,10 +1873,9 @@ function renderStreaks(){
     el.addEventListener('click', () => go('albumDetail', { albumId: el.dataset.openAlbum, backTo:{view:'streaks'} }));
   });
 }
-function streakRowHtml(album){
+function streakRowHtml(album, range){
   const avg = albumAvg(album);
   const unfinished = isUnfinished(album);
-  const range = getScoreRangeForType(album.albumType);
   return `
     <div class="list-row" data-open-album="${album.albumId}">
       <img src="${album.artworkUrl}" alt="">
