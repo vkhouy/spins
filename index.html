@@ -399,16 +399,6 @@ input[type=date]:focus{border-color:var(--green);}
         <button class="pill-btn green" id="upcomingLinkBtn">Track it</button>
       </div>
       <p class="hint" id="upcomingLinkStatus"></p>
-      <p class="hint" style="margin-top:16px;">No link at all? Enter it manually — once it's released, Spins will help you search for it properly to fill in the full tracklist.</p>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <input type="text" id="upcomingManualTitle" placeholder="Album title" autocomplete="off">
-        <input type="text" id="upcomingManualArtist" placeholder="Artist" autocomplete="off">
-        <div class="search-row">
-          <input type="date" id="upcomingManualDate" style="flex:1;">
-          <button class="pill-btn green" id="upcomingManualBtn">Track it</button>
-        </div>
-      </div>
-      <p class="hint" id="upcomingManualStatus"></p>
     </div>
   </div>
 </div>
@@ -1073,10 +1063,6 @@ function openAddModal(originView, originParams, mode){
   document.getElementById('upcomingLinkSection').style.display = addModalMode === 'upcoming' ? 'block' : 'none';
   document.getElementById('upcomingLinkInput').value = '';
   document.getElementById('upcomingLinkStatus').textContent = '';
-  document.getElementById('upcomingManualTitle').value = '';
-  document.getElementById('upcomingManualArtist').value = '';
-  document.getElementById('upcomingManualDate').value = '';
-  document.getElementById('upcomingManualStatus').textContent = '';
   addModal.classList.add('active');
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
@@ -1110,7 +1096,7 @@ async function runSearch(){
         <img src="${a.images && a.images[0] ? a.images[0].url : ''}" alt="">
         <div>
           <div class="sr-title">${escapeHtml(a.name)}</div>
-          <div class="sr-artist">${escapeHtml(a.artists.map(x=>x.name).join(', '))}${a.release_date && new Date(a.release_date) > new Date() ? ' · releases ' + fmtDate(a.release_date) : ''}</div>
+          <div class="sr-artist">${escapeHtml(a.artists.map(x=>x.name).join(', '))}${a.release_date && new Date(resolveReleaseDate(a.release_date, a.release_date_precision)) > new Date() ? ' · releases ' + fmtDate(resolveReleaseDate(a.release_date, a.release_date_precision)) : ''}</div>
         </div>
       </div>
     `).join('');
@@ -1132,7 +1118,7 @@ async function selectSearchResult(albumId){
       title: result.name,
       artist: result.artists.map(a=>a.name).join(', '),
       artworkUrl: result.images && result.images[0] ? result.images[0].url : '',
-      releaseDate: result.release_date
+      releaseDate: resolveReleaseDate(result.release_date, result.release_date_precision)
     });
     closeAddModal();
     if(route.view === 'albums') renderAlbums();
@@ -1147,6 +1133,24 @@ async function selectSearchResult(albumId){
     console.error(err);
     document.getElementById('searchStatus').textContent = 'Could not load album.';
   }
+}
+
+function resolveReleaseDate(release_date, precision){
+  // Spotify sometimes only knows the year or month for a far-out release. Parsing
+  // "2026" naively lands on Jan 1, which can read as already-past partway through
+  // the year. Push imprecise dates to the END of their known period instead, so we
+  // don't mark something "released" before it actually plausibly is.
+  if(!release_date) return release_date;
+  if(precision === 'day' || !precision) return release_date;
+  const d = new Date(release_date);
+  if(isNaN(d)) return release_date;
+  if(precision === 'month'){
+    d.setMonth(d.getMonth() + 1);
+    d.setDate(0); // last day of that month
+  } else if(precision === 'year'){
+    d.setMonth(11, 31); // Dec 31 of that year
+  }
+  return d.toISOString();
 }
 
 function extractSpotifyAlbumId(input){
@@ -1171,7 +1175,7 @@ document.getElementById('upcomingLinkBtn').addEventListener('click', async () =>
       title: full.name,
       artist: full.artists.map(a=>a.name).join(', '),
       artworkUrl: full.images && full.images[0] ? full.images[0].url : '',
-      releaseDate: full.release_date
+      releaseDate: resolveReleaseDate(full.release_date, full.release_date_precision)
     });
     closeAddModal();
     if(route.view === 'albums') renderAlbums();
@@ -1179,26 +1183,6 @@ document.getElementById('upcomingLinkBtn').addEventListener('click', async () =>
     console.error(err);
     statusEl.textContent = 'Could not find that album: ' + err.message;
   }
-});
-
-document.getElementById('upcomingManualBtn').addEventListener('click', () => {
-  const title = document.getElementById('upcomingManualTitle').value.trim();
-  const artist = document.getElementById('upcomingManualArtist').value.trim();
-  const dateStr = document.getElementById('upcomingManualDate').value;
-  const statusEl = document.getElementById('upcomingManualStatus');
-  if(!title || !artist){ statusEl.textContent = 'Enter at least a title and artist.'; return; }
-  if(!dateStr){ statusEl.textContent = 'Pick a release date.'; return; }
-  const releaseDate = new Date(dateStr + 'T12:00:00').toISOString();
-  const manualId = 'manual:' + Date.now() + ':' + Math.random().toString(36).slice(2,8);
-  putUpcoming({
-    albumId: manualId,
-    title, artist,
-    artworkUrl: '',
-    releaseDate,
-    manual: true
-  });
-  closeAddModal();
-  if(route.view === 'albums') renderAlbums();
 });
 
 async function createDraftAlbum(spotifyAlbumId){
