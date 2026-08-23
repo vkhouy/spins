@@ -1253,7 +1253,7 @@ function renderAlbumDetail(albumId){
         </div>
         <div class="d-artist">${escapeHtml(artistNames(album.artists))}</div>
         <div class="d-sub">· <select id="albumGenreInput" class="genre-input">${genreOptionsHtml(album.genre)}</select> <button class="pill-btn btn-small" id="addGenreBtn" style="font-size:11px;padding:4px 10px;">+ Add genre</button></div>
-        <div class="d-sub">Listened <input type="date" id="albumDateInput" class="genre-input" style="width:130px;" value="${dateValue}"></div>
+        <div class="d-sub">Listened <input type="date" id="albumDateInput" class="genre-input" style="width:170px;padding:10px 10px;" value="${dateValue}"></div>
         <div class="overall-rating">
           <label>Overall rating</label>
           <div class="rating-box ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
