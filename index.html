@@ -228,7 +228,7 @@ input[type=date]:focus{border-color:var(--green);}
   letter-spacing:1px;color:var(--text-dim);background:rgba(255,255,255,0.02);
 }
 .track-row{
-  display:flex;align-items:center;gap:10px;padding:13px 18px;
+  display:flex;align-items:center;gap:16px;padding:13px 18px;
   border-bottom:1px solid var(--border);
 }
 .track-row:last-child{border-bottom:none;}
@@ -241,6 +241,7 @@ input[type=date]:focus{border-color:var(--green);}
 .track-row .t-dur{color:var(--text-dim);font-size:12px;width:40px;flex-shrink:0;}
 .skip-label{
   display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px;flex-shrink:0;
+  margin-right:8px;
 }
 .skip-label input{width:15px;height:15px;accent-color:var(--green);cursor:pointer;}
 .t-rating{
@@ -252,6 +253,7 @@ input[type=date]:focus{border-color:var(--green);}
 .t-rating:focus{outline:none;border-color:var(--green);}
 .t-final{
   width:60px;flex-shrink:0;text-align:center;font-size:16px;font-weight:700;font-family:'Inter',sans-serif;
+  margin-left:6px;
 }
 .track-row-header{padding-top:6px;padding-bottom:6px;border-bottom:1px solid var(--border);}
 .rating-col-label{
@@ -1390,6 +1392,9 @@ function renderAlbumDetail(albumId){
   if(ratedCount < 2) worstIdx = -1;
   if(ratedCount < 1) bestIdx = -1;
 
+  const trackMin = ratedCount > 0 ? worstVal : 0;
+  const trackMax = ratedCount > 0 ? bestVal : 10;
+
   const discNumbers = new Set(album.tracks.map(t => t.discNumber || 1));
   const multiDisc = discNumbers.size > 1;
   let lastDisc = null, discTrackNum = 0;
@@ -1428,7 +1433,7 @@ function renderAlbumDetail(albumId){
           value="${t.rating ?? ''}" placeholder="–" ${t.skip?'disabled':''}>
         <input type="number" class="t-rating" min="0" max="10" step="0.5" data-marinate-idx="${idx}"
           value="${t.marinatedRating ?? ''}" placeholder="–" ${t.skip?'disabled':''}>
-        <div class="t-final" style="color:${finalVal!==null?ratingColor(finalVal):'inherit'};">${finalVal!==null ? finalVal.toFixed(2) : '–'}</div>
+        <div class="t-final" style="color:${finalVal!==null?relativeRatingColor(finalVal, trackMin, trackMax):'inherit'};">${finalVal!==null ? finalVal.toFixed(2) : '–'}</div>
       </div>
     `);
   });
