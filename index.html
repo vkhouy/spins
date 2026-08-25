@@ -1165,8 +1165,14 @@ function resolveReleaseDate(release_date, precision){
   // the year. Push imprecise dates to the END of their known period instead, so we
   // don't mark something "released" before it actually plausibly is.
   if(!release_date) return release_date;
-  if(precision === 'day' || !precision) return release_date;
-  const d = new Date(release_date);
+  // Parse as LOCAL midnight, not UTC midnight — a bare "YYYY-MM-DD" string parses as
+  // UTC by JS spec, which drifts by your timezone offset from Spotify's own countdown
+  // (which targets midnight in your local time).
+  const parts = release_date.split('-').map(n => parseInt(n, 10));
+  const year = parts[0];
+  const month = (parts[1] || 1) - 1;
+  const day = parts[2] || 1;
+  const d = new Date(year, month, day);
   if(isNaN(d)) return release_date;
   if(precision === 'month'){
     d.setMonth(d.getMonth() + 1);
