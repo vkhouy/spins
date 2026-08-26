@@ -656,6 +656,9 @@ let albumsFilterGenre = 'all';
 let albumsSearchQuery = '';
 let epsSort = 'rating-high';
 let epsViewMode = 'grid';
+let epsFilterStatus = 'all';
+let epsFilterGenre = 'all';
+let epsSearchQuery = '';
 
 function go(view, params={}){
   route = { view, params };
@@ -994,7 +997,20 @@ function escapeHtml(str){ const div=document.createElement('div'); div.textConte
 /* ============ EPs VIEW ============ */
 function renderEPs(){
   const store = getLibrary();
-  let epsList = Object.values(store).filter(a => a.albumType === 'ep');
+  const allEpsRaw = Object.values(store).filter(a => a.albumType === 'ep');
+  let epsList = allEpsRaw;
+
+  const genresPresent = [...new Set(epsList.map(a => a.genre || 'None'))].sort();
+
+  if(epsFilterStatus === 'finished') epsList = epsList.filter(a => !isUnfinished(a));
+  else if(epsFilterStatus === 'unfinished') epsList = epsList.filter(a => isUnfinished(a));
+
+  if(epsFilterGenre !== 'all') epsList = epsList.filter(a => (a.genre || 'None') === epsFilterGenre);
+
+  if(epsSearchQuery.trim()){
+    const q = epsSearchQuery.trim().toLowerCase();
+    epsList = epsList.filter(a => a.title.toLowerCase().includes(q) || artistNames(a.artists).toLowerCase().includes(q));
+  }
 
   epsList.sort((a,b) => {
     if(epsSort === 'rating-high'){ const av=albumAvg(a), bv=albumAvg(b); return (bv??-1)-(av??-1); }
@@ -1008,6 +1024,16 @@ function renderEPs(){
     <div class="page-head">
       <h1>EPs <span class="count">(${epsList.length})</span></h1>
       <div class="page-controls">
+        <input type="text" id="epsSearchInput" placeholder="Search your EPs…" value="${escapeHtml(epsSearchQuery)}" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:9px 14px;border-radius:20px;font-family:'Inter',sans-serif;font-size:13px;width:170px;outline:none;">
+        <select id="epsStatusFilterSelect">
+          <option value="all">All</option>
+          <option value="finished">Finished</option>
+          <option value="unfinished">Unfinished</option>
+        </select>
+        <select id="epsGenreFilterSelect">
+          <option value="all">All genres</option>
+          ${genresPresent.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('')}
+        </select>
         <select id="epsSortSelect">
           <option value="rating-high">Rating (highest)</option>
           <option value="rating-low">Rating (lowest)</option>
@@ -1024,13 +1050,25 @@ function renderEPs(){
   `;
   document.getElementById('epsSortSelect').value = epsSort;
   document.getElementById('epsSortSelect').addEventListener('change', e => { epsSort = e.target.value; renderEPs(); });
+  document.getElementById('epsStatusFilterSelect').value = epsFilterStatus;
+  document.getElementById('epsStatusFilterSelect').addEventListener('change', e => { epsFilterStatus = e.target.value; renderEPs(); });
+  document.getElementById('epsGenreFilterSelect').value = epsFilterGenre;
+  document.getElementById('epsGenreFilterSelect').addEventListener('change', e => { epsFilterGenre = e.target.value; renderEPs(); });
+  let epsSearchDebounce;
+  document.getElementById('epsSearchInput').addEventListener('input', e => {
+    clearTimeout(epsSearchDebounce);
+    const val = e.target.value;
+    epsSearchDebounce = setTimeout(() => { epsSearchQuery = val; renderEPs(); }, 300);
+  });
   document.getElementById('epsGridBtn').addEventListener('click', () => { epsViewMode='grid'; renderEPs(); });
   document.getElementById('epsListBtn').addEventListener('click', () => { epsViewMode='list'; renderEPs(); });
   document.getElementById('addEPBtn').addEventListener('click', () => openAddModal('eps'));
 
   const body = document.getElementById('epsBody');
   if(epsList.length === 0){
-    body.innerHTML = '<div class="empty-state">No EPs yet — click "+ Add" to search Spotify and start rating.</div>';
+    body.innerHTML = allEpsRaw.length === 0
+      ? '<div class="empty-state">No EPs yet — click "+ Add" to search Spotify and start rating.</div>'
+      : '<div class="empty-state">No EPs match these filters.</div>';
     return;
   }
 
