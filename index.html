@@ -2022,7 +2022,7 @@ function renderStats(){
   const maxAvg = ratedVals.length ? Math.max(...ratedVals) : 10;
 
   const genreCounts = {};
-  albums.forEach(a => { const g = a.genre || 'None'; genreCounts[g] = (genreCounts[g]||0) + 1; });
+  albums.filter(a => a.albumType !== 'single').forEach(a => { const g = a.genre || 'None'; genreCounts[g] = (genreCounts[g]||0) + 1; });
   const genreEntries = Object.entries(genreCounts).sort((a,b) => b[1]-a[1]);
   const maxGenreCount = genreEntries.length ? genreEntries[0][1] : 1;
 
