@@ -206,21 +206,30 @@ input[type=date]:focus{border-color:var(--green);}
   font-size:13px;font-weight:600;margin:24px 0 20px;cursor:pointer;
 }
 .back-link:hover{color:var(--text);}
-.detail-top{display:flex;gap:26px;margin-bottom:30px;flex-wrap:wrap;}
+.detail-top{display:flex;gap:26px;margin-bottom:30px;flex-wrap:wrap;align-items:flex-start;}
 .detail-top img{width:200px;height:200px;border-radius:12px;object-fit:cover;flex-shrink:0;background:#222;}
+.detail-meta{flex:1;min-width:240px;}
 .detail-meta .d-title-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
 .detail-meta h1{font-size:40px;font-weight:800;margin:0;}
 .detail-meta .d-artist{font-size:18px;font-weight:600;margin:8px 0 4px;color:var(--text);}
-.detail-meta .d-sub{color:var(--text-dim);font-size:13px;}
-.overall-rating{margin-top:20px;}
-.overall-rating label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
+.detail-meta .d-sub{color:var(--text-dim);font-size:13px;margin-top:6px;}
+.detail-rating-panel{
+  flex-shrink:0;margin-left:auto;display:flex;flex-direction:column;
+  align-items:center;gap:18px;padding:24px 32px;
+  background:var(--card);border-radius:16px;min-width:200px;
+}
+.overall-rating{text-align:center;}
+.overall-rating label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
 .rating-box{
   display:inline-flex;align-items:center;justify-content:center;
   min-width:90px;height:44px;padding:0 16px;
   background:#0e0e10;border:1px solid var(--border);border-radius:8px;
   font-size:20px;font-weight:700;color:var(--green);
 }
+.rating-box-large{min-width:140px;height:90px;font-size:44px;border-radius:14px;}
 .rating-box.empty{color:var(--text-dim);font-weight:500;font-size:14px;}
+.detail-rating-panel .detail-actions{margin-top:0;flex-direction:column;width:100%;}
+.detail-rating-panel .detail-actions button{width:100%;}
 
 .tracklist-panel{background:var(--card);border-radius:12px;overflow:hidden;}
 .disc-header{
@@ -578,6 +587,11 @@ function msToTime(ms){
   const totalSec = Math.round(ms/1000);
   const m = Math.floor(totalSec/60), s = totalSec%60;
   return m + ':' + String(s).padStart(2,'0');
+}
+function fmtRuntime(ms){
+  const totalMin = Math.round(ms/60000);
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return h > 0 ? `${h} hr ${m} min` : `${m} min`;
 }
 function fmtDate(iso){
   const d = new Date(iso);
@@ -1304,6 +1318,7 @@ function renderAlbumDetail(albumId){
   const bt = route.params.backTo;
   const colorRange = (bt && bt.view === 'artistDetail') ? getArtistScoreRange() : getScoreRangeForType(album.albumType);
   const dateValue = (() => { const d = new Date(album.listenedDate); return isNaN(d) ? '' : toLocalDateInputValue(d); })();
+  const totalRuntimeMs = album.tracks.reduce((s,t) => s + (t.duration_ms || 0), 0);
 
   app.innerHTML = `
     <div class="back-link" id="backToAlbums">&larr; Back</div>
@@ -1317,9 +1332,12 @@ function renderAlbumDetail(albumId){
         <div class="d-artist">${escapeHtml(artistNames(album.artists))}</div>
         <div class="d-sub">· <select id="albumGenreInput" class="genre-input">${genreOptionsHtml(album.genre)}</select> <button class="pill-btn btn-small" id="addGenreBtn" style="font-size:11px;padding:4px 10px;">+ Add genre</button></div>
         <div class="d-sub">Listened <input type="date" id="albumDateInput" class="genre-input" style="width:170px;padding:10px 10px;" value="${dateValue}"></div>
+        <div class="d-sub">${album.tracks.length} track${album.tracks.length===1?'':'s'}, ${fmtRuntime(totalRuntimeMs)}</div>
+      </div>
+      <div class="detail-rating-panel">
         <div class="overall-rating">
           <label>Overall rating</label>
-          <div class="rating-box ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
+          <div class="rating-box rating-box-large ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
         </div>
         <div class="detail-actions">
           <button class="pill-btn" id="fixOrderBtn" style="font-size:12px;">Fix track order</button>
