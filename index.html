@@ -614,18 +614,25 @@ function addCustomGenre(g){
     localStorage.setItem('d1a:customGenres', JSON.stringify(list));
   }
 }
+function insertGenreAlphabetically(options, g){
+  // Keeps "None" fixed first and "Other" fixed last; inserts g into proper
+  // alphabetical position among everything in between.
+  let insertAt = options.length - 1; // default: just before "Other" if it sorts last
+  for(let i = 1; i < options.length - 1; i++){
+    if(g.localeCompare(options[i]) < 0){ insertAt = i; break; }
+  }
+  options.splice(insertAt, 0, g);
+}
 function allGenreOptions(){
   const options = [...GENRE_OPTIONS];
-  const idx = options.indexOf('Other');
-  getCustomGenres().forEach(g => { if(!options.includes(g)) options.splice(idx, 0, g); });
+  getCustomGenres().forEach(g => { if(!options.includes(g)) insertGenreAlphabetically(options, g); });
   return options;
 }
 function genreOptionsHtml(currentGenre){
   const g = currentGenre || 'None';
   const options = allGenreOptions();
-  const idx = options.indexOf('Other');
   if(!options.includes(g)){
-    options.splice(idx, 0, g); // insert custom value just before "Other"
+    insertGenreAlphabetically(options, g);
   }
   return options.map(opt => `<option value="${escapeHtml(opt)}" ${opt===g?'selected':''}>${escapeHtml(opt)}</option>`).join('');
 }
