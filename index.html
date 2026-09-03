@@ -468,6 +468,24 @@ input[type=date]:focus{border-color:var(--green);}
   </div>
 </div>
 
+<div class="modal-overlay" id="auditModal">
+  <div class="modal" style="max-width:760px;">
+    <button class="modal-close" id="auditModalCloseBtn">&times;</button>
+    <h2>Find possible edition mismatches</h2>
+    <div id="auditIntro">
+      <p class="hint">This checks every album in your library against Spotify to see if a longer edition (Deluxe, Expanded, Anniversary, etc.) exists that you haven't added separately — a sign the original CSV import may have matched the wrong version. It has to look each one up individually, so it takes a few minutes.</p>
+      <button class="pill-btn green" id="startAuditBtn">Start scan</button>
+    </div>
+    <div id="auditProgress" style="display:none;">
+      <p class="hint" id="auditStatusLine">Starting…</p>
+      <div style="background:#0e0e10;border-radius:8px;height:10px;overflow:hidden;margin:10px 0 16px;">
+        <div id="auditBar" style="background:var(--green);height:100%;width:0%;transition:width .2s;"></div>
+      </div>
+    </div>
+    <div id="auditResults" style="display:none;"></div>
+  </div>
+</div>
+
 <script>
 /* ============ CONFIG ============ */
 const CLIENT_ID = '52f199f59a7e4ef486e35a087882039e';
@@ -1141,11 +1159,15 @@ addModal.addEventListener('click', e => { if(e.target === addModal) closeAddModa
 let addModalOrigin = 'albums';
 let addModalOriginParams = {};
 let addModalMode = 'library';
-function openAddModal(originView, originParams, mode){
+let addModalSwapFromId = null;
+function openAddModal(originView, originParams, mode, swapFromAlbumId){
   addModalOrigin = originView || 'albums';
   addModalOriginParams = originParams || {};
   addModalMode = mode || 'library';
-  document.getElementById('addModalTitle').textContent = addModalMode === 'upcoming' ? 'Track an upcoming release' : 'Add an album';
+  addModalSwapFromId = swapFromAlbumId || null;
+  document.getElementById('addModalTitle').textContent =
+    addModalMode === 'upcoming' ? 'Track an upcoming release' :
+    addModalMode === 'swap' ? 'Swap to a different edition' : 'Add an album';
   document.getElementById('upcomingLinkSection').style.display = addModalMode === 'upcoming' ? 'block' : 'none';
   document.getElementById('upcomingLinkInput').value = '';
   document.getElementById('upcomingLinkStatus').textContent = '';
@@ -1208,6 +1230,55 @@ async function selectSearchResult(albumId){
     });
     closeAddModal();
     if(route.view === 'albums') renderAlbums();
+    return;
+  }
+  if(addModalMode === 'swap'){
+    const oldAlbum = getAlbum(addModalSwapFromId);
+    if(!oldAlbum) return;
+    if(albumId === addModalSwapFromId){
+      document.getElementById('searchStatus').textContent = "That's the same edition already in your library.";
+      return;
+    }
+    document.getElementById('searchStatus').textContent = 'Swapping…';
+    try{
+      const full = await spotifyFetch('https://api.spotify.com/v1/albums/' + albumId);
+      const sortedTracks = full.tracks.items.sort((a,b) =>
+        ((a.disc_number||1)-(b.disc_number||1)) || ((a.track_number||0)-(b.track_number||0))
+      );
+      const oldByName = {};
+      oldAlbum.tracks.forEach(t => { oldByName[normStr(t.name)] = t; });
+      const art = full.images && full.images[0] ? full.images[0].url : '';
+      const newTracks = sortedTracks.map(t => {
+        const old = oldByName[normStr(t.name)];
+        return {
+          trackId: t.id, name: t.name, duration_ms: t.duration_ms, discNumber: t.disc_number || 1,
+          artists: t.artists.map(a=>({id:a.id,name:a.name})),
+          skip: old ? old.skip : false,
+          rating: old ? old.rating : null,
+          marinatedRating: old ? (old.marinatedRating ?? null) : null
+        };
+      });
+      const matchedCount = newTracks.filter((t,i) => oldByName[normStr(sortedTracks[i].name)]).length;
+      const newAlbum = {
+        albumId: full.id,
+        title: full.name,
+        artists: full.artists.map(a=>({id:a.id,name:a.name})),
+        albumType: classifyType(full),
+        artworkUrl: art,
+        genre: oldAlbum.genre,
+        notes: oldAlbum.notes,
+        listenedDate: oldAlbum.listenedDate,
+        tracks: newTracks
+      };
+      putAlbum(newAlbum);
+      removeAlbum(addModalSwapFromId);
+      closeAddModal();
+      go('albumDetail', { albumId: newAlbum.albumId, backTo:{view:addModalOrigin, params:addModalOriginParams} });
+      alert(`Swapped to "${full.name}" — carried over ratings for ${matchedCount} of ${newTracks.length} tracks by matching track names. Any new/bonus tracks are unrated.`);
+    }catch(err){
+      console.error(err);
+      document.getElementById('searchStatus').textContent = 'Could not swap: ' + err.message;
+    }
     return;
   }
   document.getElementById('searchStatus').textContent = 'Loading…';
@@ -1348,6 +1419,7 @@ function renderAlbumDetail(albumId){
           <div class="rating-box rating-box-large ${avg===null?'empty':''}" style="${avg!==null?`color:${relativeRatingColor(avg, colorRange.min, colorRange.max)};`:''}">${avg!==null ? avg.toFixed(2) : '—'}</div>
         </div>
         <div class="detail-actions">
+          <button class="pill-btn" id="swapEditionBtn" style="font-size:12px;">Swap edition</button>
           <button class="pill-btn" id="fixOrderBtn" style="font-size:12px;">Fix track order</button>
           <button class="delete-btn" id="deleteAlbumBtn">Remove from library</button>
         </div>
@@ -1368,6 +1440,11 @@ function renderAlbumDetail(albumId){
     if(!confirm(`Remove "${album.title}" from your library?`)) return;
     removeAlbum(albumId);
     go('albums');
+  });
+  document.getElementById('swapEditionBtn').addEventListener('click', () => {
+    openAddModal(bt ? bt.view : 'albums', bt ? bt.params : {}, 'swap', albumId);
+    document.getElementById('searchInput').value = `${artistNames(album.artists)} ${album.title}`;
+    runSearch();
   });
   document.getElementById('fixOrderBtn').addEventListener('click', async (e) => {
     const btn = e.target;
@@ -2068,7 +2145,10 @@ function renderStats(){
   }
 
   app.innerHTML = `
-    <div class="page-head"><h1>Stats</h1></div>
+    <div class="page-head">
+      <h1>Stats</h1>
+      <button class="pill-btn" id="openAuditBtn" style="font-size:12px;">Find possible edition mismatches</button>
+    </div>
     <div class="stats-cards">
       <div class="stat-card"><div class="s-label">Albums</div><div class="s-value">${albums.length}</div></div>
       <div class="stat-card"><div class="s-label">Tracks rated</div><div class="s-value">${totalTracksRated}</div></div>
@@ -2111,6 +2191,7 @@ function renderStats(){
       </div>
     </div>
   `;
+  document.getElementById('openAuditBtn').addEventListener('click', openAuditModal);
 }
 function statListRow(rank,title,artist,score,minAvg,maxAvg){
   return `
@@ -2157,6 +2238,104 @@ async function findBestSpotifyMatch(artist, title, year){
     if(score > bestScore){ bestScore = score; best = it; }
   }
   return bestScore >= 5 ? best : null;
+}
+
+async function findRelatedEditions(artist, title){
+  const q = `artist:"${artist.replace(/"/g,'')}" ${title.replace(/"/g,'')}`;
+  const data = await spotifyFetch('https://api.spotify.com/v1/search?type=album&limit=10&q=' + encodeURIComponent(q));
+  const items = data.albums ? data.albums.items : [];
+  const targetNorm = normStr(title);
+  const targetArtist = normStr(artist);
+  return items.filter(it => {
+    const itNorm = normStr(it.name);
+    const titleMatches = itNorm.includes(targetNorm) || targetNorm.includes(itNorm);
+    const artistMatches = it.artists.some(a => normStr(a.name) === targetArtist);
+    return titleMatches && artistMatches;
+  });
+}
+
+/* ============ EDITION MISMATCH AUDIT ============ */
+const auditModal = document.getElementById('auditModal');
+document.getElementById('auditModalCloseBtn').addEventListener('click', () => auditModal.classList.remove('active'));
+auditModal.addEventListener('click', e => { if(e.target === auditModal) auditModal.classList.remove('active'); });
+
+function openAuditModal(){
+  document.getElementById('auditIntro').style.display = 'block';
+  document.getElementById('auditProgress').style.display = 'none';
+  document.getElementById('auditResults').style.display = 'none';
+  document.getElementById('startAuditBtn').onclick = runAudit;
+  auditModal.classList.add('active');
+}
+
+async function runAudit(){
+  document.getElementById('auditIntro').style.display = 'none';
+  document.getElementById('auditProgress').style.display = 'block';
+
+  const albums = Object.values(getLibrary()).filter(a => a.albumType === 'album');
+  const savedTitlesNorm = new Set(albums.map(a => normStr(a.title)));
+  const flagged = [];
+  let done = 0;
+
+  for(const album of albums){
+    done++;
+    const primaryArtist = album.artists[0] ? album.artists[0].name : '';
+    document.getElementById('auditStatusLine').textContent = `${done} / ${albums.length} — ${album.title}`;
+    document.getElementById('auditBar').style.width = Math.round(done/albums.length*100) + '%';
+    try{
+      const editions = await findRelatedEditions(primaryArtist, album.title);
+      const better = editions.filter(e => e.total_tracks > album.tracks.length && !savedTitlesNorm.has(normStr(e.name)));
+      if(better.length){
+        const best = better.sort((a,b) => b.total_tracks - a.total_tracks)[0];
+        flagged.push({
+          albumId: album.albumId,
+          title: album.title,
+          artist: artistNames(album.artists),
+          currentCount: album.tracks.length,
+          suggestedName: best.name,
+          suggestedCount: best.total_tracks
+        });
+      }
+    }catch(err){ console.error('Audit error on', album.title, err); }
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  document.getElementById('auditProgress').style.display = 'none';
+  const resultsEl = document.getElementById('auditResults');
+  resultsEl.style.display = 'block';
+  if(flagged.length === 0){
+    resultsEl.innerHTML = '<div class="empty-state">No likely mismatches found — everything checks out against Spotify\'s track counts.</div>';
+    return;
+  }
+  resultsEl.innerHTML = `
+    <p class="hint">${flagged.length} album${flagged.length===1?'':'s'} might be missing tracks from a longer edition:</p>
+    <div class="upcoming-row-list">
+      ${flagged.map(f => `
+        <div class="upcoming-row" data-audit-album="${f.albumId}">
+          <div class="up-info">
+            <div class="up-title">${escapeHtml(f.title)} <span class="hint">(${f.currentCount} tracks saved)</span></div>
+            <div class="up-artist">${escapeHtml(f.artist)}</div>
+            <div class="up-countdown">Spotify has "${escapeHtml(f.suggestedName)}" with ${f.suggestedCount} tracks</div>
+          </div>
+          <button class="pill-btn" data-open-current="${f.albumId}">Open current</button>
+          <button class="pill-btn green" data-search-correct="${escapeHtml(f.title + ' ' + f.artist)}">Find & add</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  resultsEl.querySelectorAll('[data-open-current]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      auditModal.classList.remove('active');
+      go('albumDetail', { albumId: btn.dataset.openCurrent, backTo:{view:'stats'} });
+    });
+  });
+  resultsEl.querySelectorAll('[data-search-correct]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      auditModal.classList.remove('active');
+      openAddModal('stats');
+      document.getElementById('searchInput').value = btn.dataset.searchCorrect;
+      runSearch();
+    });
+  });
 }
 
 async function findArtistId(name){
